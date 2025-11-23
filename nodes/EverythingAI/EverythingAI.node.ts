@@ -386,6 +386,17 @@ export class EverythingAi implements INodeType {
 				model,
 			};
 
+			// If edit mode is enabled, try to load previous code
+			let previousCode: string | undefined;
+			if (editMode) {
+				try {
+					previousCode = await loadGeneratedCode(workflowId, nodeId);
+				} catch {
+					// If no previous code exists, previousCode will be undefined
+					previousCode = undefined;
+				}
+			}
+
 			// Call LLM to generate code
 			const result = await generateCodeWithLLM.call(
 				this,
@@ -395,6 +406,8 @@ export class EverythingAi implements INodeType {
 				instruction,
 				inputStructures,
 				advanced.customPrompt,
+				enableSecurityCheck,
+				previousCode,
 			);
 
 			code = result.code;
