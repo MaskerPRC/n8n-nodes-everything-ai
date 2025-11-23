@@ -387,6 +387,7 @@ export class EverythingAi implements INodeType {
 			};
 
 			// If edit mode is enabled, try to load previous code
+			const editMode = advanced.edit || false; // Default to false
 			let previousCode: string | undefined;
 			if (editMode) {
 				try {
@@ -413,13 +414,14 @@ export class EverythingAi implements INodeType {
 			code = result.code;
 			schemas = result.schemas;
 
-			// Save generated code
+			// Save generated code (editMode is already defined above)
 			await saveGeneratedCode(workflowId, nodeId, code, schemas, {
 				inputCount,
 				outputCount,
 				instruction,
 				model,
 				enableSecurityCheck,
+				edit: editMode,
 				generatedAt: new Date().toISOString(),
 			});
 			
