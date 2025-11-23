@@ -20,8 +20,39 @@ function buildSystemPrompt(
 	outputCount: number,
 	instruction: string,
 	customPrompt?: string,
+	enableSecurityCheck?: boolean,
 ): string {
+	const securityWarning = enableSecurityCheck ? `
+## Security Restrictions (IMPORTANT!)
+**Security check is ENABLED. You MUST reject any instruction that requests:**
+- File deletion operations (fs.unlink, fs.rmdir, fs.rm, etc.)
+- Directory deletion operations
+- System file operations
+- Any write/delete operations that could be harmful
+- Operations that modify or delete system directories or critical files
+
+**Allowed operations:**
+- Read operations (fs.readFile, fs.readdir, etc.) - these are safe
+- HTTP requests
+- Data processing and transformation
+- Creating new data structures
+
+**If the user instruction contains any dangerous operations, you MUST:**
+1. Return an error message in the \`code\` field explaining why the operation is rejected
+2. Do NOT generate code that performs dangerous operations
+3. Suggest safe alternatives if possible
+
+Example rejection response:
+\`\`\`json
+{
+  "code": "// Security check: This instruction requests file deletion which is not allowed for safety reasons. Please use read operations instead or disable security check if you have proper authorization.",
+  "schemas": { "A": { "type": "array", "items": { "type": "object" } } }
+}
+\`\`\`
+` : '';
+
 	const defaultPrompt = `You are a code generation assistant. Users will provide data structures from multiple input ports and a natural language instruction. You need to generate executable JavaScript code.
+${securityWarning}
 
 ## Input/Output Convention
 - Input ports are represented by numbers 1, 2, 3, ... (${inputCount} input ports total)
@@ -398,7 +429,7 @@ export async function generateCodeWithLLM(
 	}>,
 	customPrompt?: string,
 ): Promise<LLMResponse> {
-	const systemPrompt = buildSystemPrompt(inputCount, outputCount, instruction, customPrompt);
+	const systemPrompt = buildSystemPrompt(inputCount, outputCount, instruction, customPrompt, enableSecurityCheck);
 	const userPrompt = buildUserPrompt(inputStructures);
 
 	const requestBody = {

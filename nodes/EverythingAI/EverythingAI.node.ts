@@ -162,6 +162,13 @@ export class EverythingAi implements INodeType {
 						default: false,
 						description: 'Whether to force reset the node and clear generated code. Note: The node will automatically reset and regenerate code when the instruction, input count, or output count changes. Use this option only if you want to force a reset without changing any configuration.',
 					},
+					{
+						displayName: 'Enable Security Check',
+						name: 'enableSecurityCheck',
+						type: 'boolean',
+						default: true,
+						description: 'When enabled, the node will reject code generation requests that contain dangerous operations such as file deletion, directory deletion, system file operations, or other potentially harmful write/delete operations. Read operations are allowed.',
+					},
 				],
 			},
 		],
@@ -279,6 +286,7 @@ export class EverythingAi implements INodeType {
 		const advanced = this.getNodeParameter('advanced', 0, {}) as {
 			customPrompt?: string;
 			reset?: boolean;
+			enableSecurityCheck?: boolean;
 		};
 		const reset = advanced.reset || false;
 
@@ -468,6 +476,39 @@ export class EverythingAi implements INodeType {
 				throw new Error(`Module '${moduleName}' is not available. Available built-in modules: ${Object.keys(modules).join(', ')}`);
 			}
 		};
+
+		// Security check: If enabled, reject code containing dangerous operations
+		const securityAdvanced = this.getNodeParameter('advanced', 0, {}) as {
+			enableSecurityCheck?: boolean;
+		};
+		const enableSecurityCheck = securityAdvanced.enableSecurityCheck !== false; // Default to true
+		
+		if (enableSecurityCheck) {
+			// Check for dangerous file operations
+			const dangerousPatterns = [
+				/fs\.(unlink|rmdir|rm|unlinkSync|rmdirSync|rmSync)/i,
+				/fs\.(writeFile|writeFileSync|appendFile|appendFileSync)/i,
+				/child_process\.(exec|execSync|spawn|spawnSync)/i,
+				/process\.(exit|kill)/i,
+				/\.delete/i,
+				/\.remove/i,
+				/\bdelete\s+.*file/i,
+				/\bremove\s+.*file/i,
+				/\bdelete\s+.*directory/i,
+				/\bremove\s+.*directory/i,
+				/\bdelete\s+.*system/i,
+				/\bremove\s+.*system/i,
+			];
+			
+			const hasDangerousOperation = dangerousPatterns.some(pattern => pattern.test(code));
+			
+			if (hasDangerousOperation) {
+				throw new NodeOperationError(
+					this.getNode(),
+					`Security check: Generated code contains potentially dangerous operations (file deletion, system operations, etc.). This is blocked for safety. If you need these operations, please disable the security check in advanced settings.`,
+				);
+			}
+		}
 
 		// Create function with require available in scope
 		// Wrap function body in async function to support await
