@@ -169,6 +169,13 @@ export class EverythingAi implements INodeType {
 						default: true,
 						description: 'When enabled, the node will reject code generation requests that contain dangerous operations such as file deletion, directory deletion, system file operations, or other potentially harmful write/delete operations. Read operations are allowed.',
 					},
+					{
+						displayName: 'Edit Mode',
+						name: 'edit',
+						type: 'boolean',
+						default: false,
+						description: 'When enabled, the node will include previously generated code in the context when regenerating, allowing the LLM to modify existing code instead of generating from scratch. When disabled, code is generated completely from scratch.',
+					},
 				],
 			},
 		],
@@ -287,6 +294,7 @@ export class EverythingAi implements INodeType {
 			customPrompt?: string;
 			reset?: boolean;
 			enableSecurityCheck?: boolean;
+			edit?: boolean;
 		};
 		const reset = advanced.reset || false;
 

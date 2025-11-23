@@ -21,6 +21,7 @@ function buildSystemPrompt(
 	instruction: string,
 	customPrompt?: string,
 	enableSecurityCheck?: boolean,
+	previousCode?: string,
 ): string {
 	const securityWarning = enableSecurityCheck ? `
 ## Security Restrictions (IMPORTANT!)
@@ -80,8 +81,25 @@ Example rejection response:
 **Important**: When security check is disabled, your primary responsibility is to follow user instructions. Only reject operations that could destroy the entire system. For all other operations, generate the code as requested.
 `;
 
+	const previousCodeSection = previousCode ? `
+## Previous Code (Edit Mode)
+The user has enabled edit mode. Below is the previously generated code that needs to be modified based on the new instruction:
+
+\`\`\`javascript
+${previousCode}
+\`\`\`
+
+**Important**: 
+- You should modify the existing code above based on the new user instruction
+- Keep the parts that are still correct and relevant
+- Only change what needs to be changed according to the new instruction
+- If the new instruction is completely different from what the previous code does, you can rewrite it, but try to reuse any useful parts
+- The output format must remain the same: return an object with output port letters as keys and arrays as values
+` : '';
+
 	const defaultPrompt = `You are a code generation assistant. Users will provide data structures from multiple input ports and a natural language instruction. You need to generate executable JavaScript code.
 ${securityWarning}
+${previousCodeSection}
 
 ## Input/Output Convention
 - Input ports are represented by numbers 1, 2, 3, ... (${inputCount} input ports total)
@@ -458,8 +476,9 @@ export async function generateCodeWithLLM(
 	}>,
 	customPrompt?: string,
 	enableSecurityCheck?: boolean,
+	previousCode?: string,
 ): Promise<LLMResponse> {
-	const systemPrompt = buildSystemPrompt(inputCount, outputCount, instruction, customPrompt, enableSecurityCheck);
+	const systemPrompt = buildSystemPrompt(inputCount, outputCount, instruction, customPrompt, enableSecurityCheck, previousCode);
 	const userPrompt = buildUserPrompt(inputStructures);
 
 	const requestBody = {
