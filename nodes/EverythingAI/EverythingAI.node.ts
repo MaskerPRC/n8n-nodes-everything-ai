@@ -114,6 +114,13 @@ export class EverythingAi implements INodeType {
 				required: true,
 			},
 			{
+				displayName: 'Edit Mode',
+				name: 'edit',
+				type: 'boolean',
+				default: false,
+				description: 'When enabled, the node will include previously generated code in the context when regenerating, allowing the LLM to modify existing code instead of generating from scratch. When disabled, code is generated completely from scratch.',
+			},
+			{
 				displayName: 'Model Name or ID',
 				name: 'model',
 				type: 'options',
@@ -168,13 +175,6 @@ export class EverythingAi implements INodeType {
 						type: 'boolean',
 						default: true,
 						description: 'When enabled, the node will reject code generation requests that contain dangerous operations such as file deletion, directory deletion, system file operations, or other potentially harmful write/delete operations. Read operations are allowed.',
-					},
-					{
-						displayName: 'Edit Mode',
-						name: 'edit',
-						type: 'boolean',
-						default: false,
-						description: 'When enabled, the node will include previously generated code in the context when regenerating, allowing the LLM to modify existing code instead of generating from scratch. When disabled, code is generated completely from scratch.',
 					},
 				],
 			},
@@ -288,15 +288,16 @@ export class EverythingAi implements INodeType {
 		const inputCount = this.getNodeParameter('numberInputs', 0) as number;
 		const outputCount = this.getNodeParameter('numberOutputs', 0) as number;
 		const instruction = this.getNodeParameter('instruction', 0) as string;
+		const editMode = this.getNodeParameter('edit', 0, false) as boolean;
 		const modelSelection = this.getNodeParameter('model', 0) as string;
 		const customModel = this.getNodeParameter('customModel', 0, '') as string;
 		const advanced = this.getNodeParameter('advanced', 0, {}) as {
 			customPrompt?: string;
 			reset?: boolean;
 			enableSecurityCheck?: boolean;
-			edit?: boolean;
 		};
 		const reset = advanced.reset || false;
+		const enableSecurityCheck = advanced.enableSecurityCheck !== false; // Default to true
 
 		// Determine the model name to use
 		// If no model is selected (empty string), use default value gpt-4o-mini
@@ -336,9 +337,6 @@ export class EverythingAi implements INodeType {
 		// Check node status
 		// If reset is true, force regeneration (even if file exists)
 		let isPrepared = reset ? false : await isNodePrepared(workflowId, nodeId);
-
-		// Get security check setting (used for comparison and code generation)
-		const enableSecurityCheck = advanced.enableSecurityCheck !== false; // Default to true
 		
 		// If node is prepared, check if instruction has changed
 		if (isPrepared) {
@@ -346,12 +344,14 @@ export class EverythingAi implements INodeType {
 				const meta = await loadMeta(workflowId, nodeId);
 				const savedInstruction = meta.instruction as string;
 				const savedEnableSecurityCheck = meta.enableSecurityCheck !== false; // Default to true if not present
-				// If instruction changes, or input/output count changes, or security check setting changes, need to regenerate
+				const savedEditMode = meta.edit || false; // Default to false if not present
+				// If instruction changes, or input/output count changes, or security check setting changes, or edit mode changes, need to regenerate
 				if (
 					savedInstruction !== instruction ||
 					meta.inputCount !== inputCount ||
 					meta.outputCount !== outputCount ||
-					savedEnableSecurityCheck !== enableSecurityCheck
+					savedEnableSecurityCheck !== enableSecurityCheck ||
+					savedEditMode !== editMode
 				) {
 					isPrepared = false;
 					// Delete old files, prepare for regeneration
@@ -387,7 +387,6 @@ export class EverythingAi implements INodeType {
 			};
 
 			// If edit mode is enabled, try to load previous code
-			const editMode = advanced.edit || false; // Default to false
 			let previousCode: string | undefined;
 			if (editMode) {
 				try {
