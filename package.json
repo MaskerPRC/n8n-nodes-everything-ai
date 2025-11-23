@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-everything-ai",
-	"version": "0.4.0",
+	"version": "0.4.2",
 	"description": "多入多出、自然语言驱动的 AI 节点，支持通过自然语言指令自动生成代码并执行数据路由",
 	"license": "MIT",
 	"homepage": "",

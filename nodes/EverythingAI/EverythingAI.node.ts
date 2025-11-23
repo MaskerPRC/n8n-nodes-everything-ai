@@ -449,10 +449,10 @@ export class EverythingAi implements INodeType {
 					);
 				}
 
-				// 如果输出口没有数据，至少添加一个空数据项，确保流程继续执行
-				if (outputData.length === 0) {
-					outputData = [{ json: {}, binary: {} }];
-				}
+				// 注意：不要自动为空数组添加数据项
+				// 如果生成的代码返回空数组，说明该路径不应该执行（这是正确的行为）
+				// 只有当代码明确需要该输出口有数据但忘记添加时，才需要补充
+				// 但为了保持代码生成的一致性，我们让 LLM 自己处理，这里不做自动补充
 
 				outputs.push(outputData);
 			}
