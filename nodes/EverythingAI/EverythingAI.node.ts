@@ -26,14 +26,14 @@ export class EverythingAi implements INodeType {
 		icon: { light: 'file:../../icons/brain.svg', dark: 'file:../../icons/brain.dark.svg' },
 		group: ['transform'],
 		version: 1,
-		description: '多入多出、自然语言驱动的 AI 节点',
+		description: 'Multi-input, multi-output, natural language-driven AI node',
 		usableAsTool: true,
 		defaults: {
 			name: 'Everything AI',
 		},
-		// 使用表达式动态配置输入输出端口
-		// 参考 n8n Merge 节点的实现方式
-		// @ts-ignore - 表达式字符串在运行时会被 n8n 解析
+		// Use expressions to dynamically configure input/output ports
+		// Reference the implementation of n8n Merge node
+		// @ts-ignore - Expression strings will be parsed by n8n at runtime
 		inputs: `={{(${configuredInputs})($parameter)}}`,
 		// @ts-ignore
 		outputs: `={{(${configuredOutputs})($parameter)}}`,
@@ -45,7 +45,7 @@ export class EverythingAi implements INodeType {
 		],
 		properties: [
 			{
-				displayName: '输入口数量',
+				displayName: 'Number of Inputs',
 				name: 'numberInputs',
 				type: 'options',
 				noDataExpression: true,
@@ -55,11 +55,11 @@ export class EverythingAi implements INodeType {
 					value: i + 1,
 				})),
 				validateType: 'number',
-				description: '选择输入口的数量（1-10）。修改此值后，节点会动态显示相应数量的输入端口。',
+				description: 'Select the number of input ports (1-10). After modifying this value, the node will dynamically display the corresponding number of input ports.',
 				required: true,
 			},
 			{
-				displayName: '输出口数量',
+				displayName: 'Number of Outputs',
 				name: 'numberOutputs',
 				type: 'options',
 				noDataExpression: true,
@@ -69,11 +69,11 @@ export class EverythingAi implements INodeType {
 					value: i + 1,
 				})),
 				validateType: 'number',
-				description: '选择输出口的数量（1-10）。修改此值后，节点会动态显示相应数量的输出端口。',
+				description: 'Select the number of output ports (1-10). After modifying this value, the node will dynamically display the corresponding number of output ports.',
 				required: true,
 			},
 			{
-				displayName: '你的需求',
+				displayName: 'Your Requirement',
 				name: 'instruction',
 				type: 'string',
 				typeOptions: {
@@ -81,28 +81,28 @@ export class EverythingAi implements INodeType {
 				},
 				default: '',
 				placeholder:
-					'例如：当输入口1的数据中status="paid"时，发送到输出口A，否则发送到输出口B',
+					'e.g., When status="paid" in input 1 data, send to output A, otherwise send to output B',
 				description:
-					'用自然语言描述你的数据处理需求。用数字 1,2,3... 指代输入口，用大写字母 A,B,C... 指代输出口。如果需要修改逻辑，只需修改此需求即可，节点会自动重新生成代码。',
+					'Describe your data processing requirements in natural language. Use numbers 1,2,3... to refer to inputs and uppercase letters A,B,C... to refer to outputs. If you need to modify the logic, just modify this requirement and the node will automatically regenerate the code.',
 				required: true,
 			},
 			{
-				displayName: '模型 Name or ID',
+				displayName: 'Model Name or ID',
 				name: 'model',
 				type: 'options',
 				typeOptions: {
 					loadOptionsMethod: 'getModels',
 				},
 				default: '',
-				description: '选择使用的 LLM 模型（从 API 动态加载）. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+				description: 'Select the LLM model to use (dynamically loaded from API). Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 				required: true,
 			},
 			{
-				displayName: '自定义模型名称',
+				displayName: 'Custom Model Name',
 				name: 'customModel',
 				type: 'string',
 				default: '',
-				description: '当选择"自定义"模型时，在此输入模型名称',
+				description: 'When "Custom" model is selected, enter the model name here',
 				displayOptions: {
 					show: {
 						model: ['custom'],
@@ -111,14 +111,14 @@ export class EverythingAi implements INodeType {
 				required: true,
 			},
 			{
-				displayName: '高级设置',
+				displayName: 'Advanced Settings',
 				name: 'advanced',
 				type: 'collection',
-				placeholder: '添加高级设置',
+				placeholder: 'Add Advanced Settings',
 				default: {},
 				options: [
 					{
-						displayName: '自定义 Prompt 模板',
+						displayName: 'Custom Prompt Template',
 						name: 'customPrompt',
 						type: 'string',
 						typeOptions: {
@@ -126,10 +126,10 @@ export class EverythingAi implements INodeType {
 						},
 						default: '',
 						description:
-							'自定义系统 Prompt 模板。留空则使用默认模板。可以使用 {{instruction}}, {{inputCount}}, {{outputCount}} 作为占位符。',
+							'Custom system prompt template. Leave empty to use the default template. You can use {{instruction}}, {{inputCount}}, {{outputCount}} as placeholders.',
 					},
 					{
-						displayName: '强制重置节点',
+						displayName: 'Force Reset Node',
 						name: 'reset',
 						type: 'boolean',
 						default: false,
@@ -144,7 +144,7 @@ export class EverythingAi implements INodeType {
 		loadOptions: {
 			async getModels(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				try {
-					// 获取 credentials
+					// Get credentials
 					const credentials = await this.getCredentials('openAIApi');
 					const apiBaseUrl = (credentials.apiBaseUrl as string) || 'https://api.openai.com/v1';
 					const apiKey = credentials.apiKey as string;
@@ -152,13 +152,13 @@ export class EverythingAi implements INodeType {
 					if (!apiKey) {
 						return [
 							{
-								name: '请先配置 API Key',
+								name: 'Please configure API Key first',
 								value: '',
 							},
 						];
 					}
 
-					// 调用 OpenAI 格式的 /models API
+					// Call OpenAI-format /models API
 					const response = await this.helpers.httpRequest({
 						method: 'GET',
 						url: `${apiBaseUrl}/models`,
@@ -167,13 +167,13 @@ export class EverythingAi implements INodeType {
 						},
 					});
 
-					// 解析模型列表
+					// Parse model list
 					const models: INodePropertyOptions[] = [];
-					// OpenAI API 返回格式可能是 { data: [...] } 或直接是数组
+					// OpenAI API response format may be { data: [...] } or directly an array
 					const modelList = Array.isArray(response) ? response : response.data || [];
 
 					if (Array.isArray(modelList) && modelList.length > 0) {
-						// 过滤出 chat 模型（通常以 gpt- 或 claude- 开头，或者包含 chat/instruct）
+						// Filter chat models (usually starting with gpt- or claude-, or containing chat/instruct)
 						const chatModels = modelList
 							.filter((model: { id: string }) => {
 								if (!model || !model.id) return false;
@@ -189,49 +189,49 @@ export class EverythingAi implements INodeType {
 							.map((model: { id: string; created?: number }) => ({
 								name: model.id,
 								value: model.id,
-								description: `模型 ID: ${model.id}`,
+								description: `Model ID: ${model.id}`,
 							}))
 							.sort((a, b) => a.name.localeCompare(b.name));
 
 						models.push(...chatModels);
 					}
 
-					// 如果没有找到模型，返回默认选项
+					// If no models found, return default option
 					if (models.length === 0) {
 						return [
 							{
 								name: 'gpt-4o-mini',
 								value: 'gpt-4o-mini',
-								description: '默认模型（API 未返回模型列表）',
+								description: 'Default model (API did not return model list)',
 							},
 						];
 					}
 
-					// 添加自定义选项
+					// Add custom option
 					models.push({
-						name: '自定义',
+						name: 'Custom',
 						value: 'custom',
-						description: '使用自定义模型名称',
+						description: 'Use custom model name',
 					});
 
 					return models;
 				} catch (error: unknown) {
-					// 如果 API 调用失败，返回默认模型列表
+					// If API call fails, return default model list
 					const errorMessage = error instanceof Error ? error.message : String(error);
 					return [
 						{
-							name: `加载失败: ${errorMessage}`,
+							name: `Load failed: ${errorMessage}`,
 							value: '',
 						},
 						{
-							name: 'Gpt-4o-Mini (默认)',
+							name: 'Gpt-4o-Mini (Default)',
 							value: 'gpt-4o-mini',
-							description: '使用默认模型',
+							description: 'Use default model',
 						},
 						{
-							name: '自定义',
+							name: 'Custom',
 							value: 'custom',
-							description: '使用自定义模型名称',
+							description: 'Use custom model name',
 						},
 					];
 				}
@@ -243,7 +243,7 @@ export class EverythingAi implements INodeType {
 		const workflowId = this.getWorkflow().id || 'default';
 		const nodeId = this.getNode().id;
 
-		// 获取配置参数
+		// Get configuration parameters
 		const inputCount = this.getNodeParameter('numberInputs', 0) as number;
 		const outputCount = this.getNodeParameter('numberOutputs', 0) as number;
 		const instruction = this.getNodeParameter('instruction', 0) as string;
@@ -255,8 +255,8 @@ export class EverythingAi implements INodeType {
 		};
 		const reset = advanced.reset || false;
 
-		// 确定使用的模型名称
-		// 如果未选择模型（空字符串），使用默认值 gpt-4o-mini
+		// Determine the model name to use
+		// If no model is selected (empty string), use default value gpt-4o-mini
 		let model = modelSelection;
 		if (!model || model === '') {
 			model = 'gpt-4o-mini';
@@ -264,53 +264,53 @@ export class EverythingAi implements INodeType {
 			if (!customModel || customModel.trim() === '') {
 				throw new NodeOperationError(
 					this.getNode(),
-					'选择了自定义模型，但未填写自定义模型名称',
+					'Custom model is selected but custom model name is not filled in',
 				);
 			}
 			model = customModel;
 		}
 
-		// 验证输入输出数量
+		// Validate input/output count
 		if (inputCount < 1 || inputCount > 10) {
-			throw new NodeOperationError(this.getNode(), '输入口数量必须在 1-10 之间');
+			throw new NodeOperationError(this.getNode(), 'Number of inputs must be between 1 and 10');
 		}
 		if (outputCount < 1 || outputCount > 10) {
-			throw new NodeOperationError(this.getNode(), '输出口数量必须在 1-10 之间');
+			throw new NodeOperationError(this.getNode(), 'Number of outputs must be between 1 and 10');
 		}
 
-		// 获取所有输入口的数据
+		// Get all input data
 		const allInputs: INodeExecutionData[][] = [];
 		for (let i = 0; i < inputCount; i++) {
 			const inputData = this.getInputData(i) as INodeExecutionData[];
 			allInputs.push(inputData);
 		}
 
-		// 处理重置：如果 reset 为 true，先重置节点
+		// Handle reset: if reset is true, reset the node first
 		if (reset) {
 			await resetNode(workflowId, nodeId);
 		}
 
-		// 检查节点状态
-		// 如果 reset 为 true，强制重新生成（即使文件存在）
+		// Check node status
+		// If reset is true, force regeneration (even if file exists)
 		let isPrepared = reset ? false : await isNodePrepared(workflowId, nodeId);
 
-		// 如果节点已准备，检查指令是否发生变化
+		// If node is prepared, check if instruction has changed
 		if (isPrepared) {
 			try {
 				const meta = await loadMeta(workflowId, nodeId);
 				const savedInstruction = meta.instruction as string;
-				// 如果指令发生变化，或者输入输出数量发生变化，需要重新生成
+				// If instruction changes, or input/output count changes, need to regenerate
 				if (
 					savedInstruction !== instruction ||
 					meta.inputCount !== inputCount ||
 					meta.outputCount !== outputCount
 				) {
 					isPrepared = false;
-					// 删除旧文件，准备重新生成
+					// Delete old files, prepare for regeneration
 					await resetNode(workflowId, nodeId);
 				}
 			} catch {
-				// 如果加载 meta 失败，也重新生成
+				// If loading meta fails, also regenerate
 				isPrepared = false;
 			}
 		}
@@ -319,18 +319,18 @@ export class EverythingAi implements INodeType {
 		let schemas: Record<string, Record<string, unknown>>;
 
 		if (!isPrepared) {
-			// Building 状态：生成代码
+			// Building state: generate code
 			if (!instruction || instruction.trim() === '') {
 				throw new NodeOperationError(
 					this.getNode(),
-					'需求不能为空，请先填写你的需求后再执行',
+					'Requirement cannot be empty. Please fill in your requirement before executing.',
 				);
 			}
 
-			// 提取输入数据结构
+			// Extract input data structures
 			const inputStructures = extractInputStructures(allInputs);
 
-			// 获取 LLM 配置
+			// Get LLM configuration
 			const credentials = await this.getCredentials('openAIApi');
 			const llmConfig = {
 				apiBaseUrl: (credentials.apiBaseUrl as string) || 'https://api.openai.com/v1',
@@ -338,7 +338,7 @@ export class EverythingAi implements INodeType {
 				model,
 			};
 
-			// 调用 LLM 生成代码
+			// Call LLM to generate code
 			const result = await generateCodeWithLLM.call(
 				this,
 				llmConfig,
@@ -352,7 +352,7 @@ export class EverythingAi implements INodeType {
 			code = result.code;
 			schemas = result.schemas;
 
-			// 保存生成的代码
+			// Save generated code
 			await saveGeneratedCode(workflowId, nodeId, code, schemas, {
 				inputCount,
 				outputCount,
@@ -361,36 +361,36 @@ export class EverythingAi implements INodeType {
 				generatedAt: new Date().toISOString(),
 			});
 			
-			// 代码生成后，节点状态会自动变为 prepared（通过文件存在性来判断）
+			// After code generation, node status will automatically become prepared (determined by file existence)
 		} else {
-			// Prepared 状态：加载已有代码
+			// Prepared state: load existing code
 			code = await loadGeneratedCode(workflowId, nodeId);
 		}
 
-		// 如果 reset 为 true，在执行完成后需要提醒用户手动设置为 false
-		// 由于 n8n 不允许在执行时修改节点参数，我们无法自动设置
-		// 但可以通过检查 reset 参数并在下次执行时忽略它（如果已经重置过）
+		// If reset is true, need to remind user to manually set it to false after execution
+		// Since n8n does not allow modifying node parameters during execution, we cannot set it automatically
+		// But we can check the reset parameter and ignore it on next execution (if already reset)
 
-		// 执行生成的代码
-		// 创建一个安全的执行环境
-		// 先检查代码中是否包含 return 语句
+		// Execute generated code
+		// Create a safe execution environment
+		// First check if code contains return statement
 		if (!code.includes('return ') && !code.includes('return;')) {
 			throw new NodeOperationError(
 				this.getNode(),
-				`生成的代码缺少 return 语句。代码必须返回一个对象。\n\n生成的代码：\n${code}`,
+				`Generated code is missing return statement. Code must return an object.\n\nGenerated code:\n${code}`,
 			);
 		}
 
-		// 提取函数体（如果 code 是完整的函数定义，需要提取函数体）
+		// Extract function body (if code is a complete function definition, need to extract function body)
 		let functionBody = code;
 		if (code.trim().startsWith('function')) {
-			// 提取函数体部分 - 使用更宽松的正则表达式
-			// 匹配 function 关键字后的函数名、参数和函数体
+			// Extract function body part - use more lenient regex
+			// Match function name, parameters and function body after function keyword
 			const match = code.match(/function\s+\w+\s*\([^)]*\)\s*\{([\s\S]*)\}\s*$/);
 			if (match && match[1]) {
 				functionBody = match[1].trim();
 			} else {
-				// 如果正则匹配失败，尝试更简单的方法：找到第一个 { 和最后一个 }
+				// If regex match fails, try simpler method: find first { and last }
 				const firstBrace = code.indexOf('{');
 				const lastBrace = code.lastIndexOf('}');
 				if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -409,50 +409,50 @@ export class EverythingAi implements INodeType {
 				const execErrorMessage = execError instanceof Error ? execError.message : String(execError);
 				throw new NodeOperationError(
 					this.getNode(),
-					`执行生成的代码时发生错误: ${execErrorMessage}\n\n生成的代码：\n${code}\n\n提取的函数体：\n${functionBody}\n\n输入数据：\n${JSON.stringify(allInputs.map(input => input.length), null, 2)}`,
+					`Error occurred while executing generated code: ${execErrorMessage}\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}\n\nInput data:\n${JSON.stringify(allInputs.map(input => input.length), null, 2)}`,
 				);
 			}
 
-			// 验证返回结果
+			// Validate return result
 			if (result === null || result === undefined) {
 				throw new NodeOperationError(
 					this.getNode(),
-					`生成的代码返回了 ${result === null ? 'null' : 'undefined'}。代码必须返回一个对象，格式为 { "A": [...], "B": [...], ... }。\n\n生成的代码：\n${code}\n\n提取的函数体：\n${functionBody}\n\n请检查代码是否包含 return 语句。`,
+					`Generated code returned ${result === null ? 'null' : 'undefined'}. Code must return an object in format { "A": [...], "B": [...], ... }.\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}\n\nPlease check if code contains return statement.`,
 				);
 			}
 
 			if (typeof result !== 'object') {
 				throw new NodeOperationError(
 					this.getNode(),
-					`生成的代码返回格式不正确。期望返回一个对象，但实际返回了 ${typeof result} (值: ${JSON.stringify(result)})。代码必须返回格式：{ "A": [...], "B": [...], ... }。\n\n生成的代码：\n${code}\n\n提取的函数体：\n${functionBody}\n\n实际返回类型：${typeof result}\n实际返回值：${JSON.stringify(result)}`,
+					`Generated code returned incorrect format. Expected an object, but actually returned ${typeof result} (value: ${JSON.stringify(result)}). Code must return format: { "A": [...], "B": [...], ... }.\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}\n\nActual return type: ${typeof result}\nActual return value: ${JSON.stringify(result)}`,
 				);
 			}
 
 			if (Array.isArray(result)) {
 				throw new NodeOperationError(
 					this.getNode(),
-					`生成的代码返回了数组而不是对象。返回的值：${JSON.stringify(result)}。代码必须返回一个对象，格式为 { "A": [...], "B": [...], ... }，其中键是输出口字母（A, B, C...），值是数据项数组。\n\n生成的代码：\n${code}\n\n提取的函数体：\n${functionBody}`,
+					`Generated code returned an array instead of an object. Returned value: ${JSON.stringify(result)}. Code must return an object in format { "A": [...], "B": [...], ... }, where keys are output port letters (A, B, C...), and values are data item arrays.\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}`,
 				);
 			}
 
-			// 按输出口组织数据
+			// Organize data by output port
 			const outputs: INodeExecutionData[][] = [];
 			for (let i = 0; i < outputCount; i++) {
 				const outputLetter = String.fromCharCode(65 + i); // A, B, C, ...
 				let outputData = result[outputLetter] || [];
 				
-				// 确保输出是数组
+				// Ensure output is an array
 				if (!Array.isArray(outputData)) {
 					throw new NodeOperationError(
 						this.getNode(),
-						`输出口 ${outputLetter} 的数据必须是数组`,
+						`Output port ${outputLetter} data must be an array`,
 					);
 				}
 
-				// 注意：不要自动为空数组添加数据项
-				// 如果生成的代码返回空数组，说明该路径不应该执行（这是正确的行为）
-				// 只有当代码明确需要该输出口有数据但忘记添加时，才需要补充
-				// 但为了保持代码生成的一致性，我们让 LLM 自己处理，这里不做自动补充
+				// Note: Do not automatically add data items to empty arrays
+				// If generated code returns empty array, it means this path should not execute (this is correct behavior)
+				// Only when code explicitly needs this output port to have data but forgot to add it, should we supplement
+				// But to maintain code generation consistency, we let LLM handle it itself, no automatic supplementation here
 
 				outputs.push(outputData);
 			}
@@ -465,7 +465,7 @@ export class EverythingAi implements INodeType {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			throw new NodeOperationError(
 				this.getNode(),
-				`执行生成的代码时出错: ${errorMessage}`,
+				`Error executing generated code: ${errorMessage}`,
 			);
 		}
 	}

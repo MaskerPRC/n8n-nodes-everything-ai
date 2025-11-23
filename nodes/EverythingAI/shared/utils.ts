@@ -21,7 +21,7 @@ const SCHEMA_FILE_NAME = 'schema.json';
 const META_FILE_NAME = 'meta.json';
 
 /**
- * 获取节点的专属目录路径
+ * Get node's dedicated directory path
  */
 export function getNodeStoragePath(workflowId: string, nodeId: string): string {
 	/* eslint-disable @n8n/community-nodes/no-restricted-globals */
@@ -33,7 +33,7 @@ export function getNodeStoragePath(workflowId: string, nodeId: string): string {
 }
 
 /**
- * 确保目录存在
+ * Ensure directory exists
  */
 export async function ensureDirectoryExists(dirPath: string): Promise<void> {
 	try {
@@ -44,7 +44,7 @@ export async function ensureDirectoryExists(dirPath: string): Promise<void> {
 }
 
 /**
- * 检查节点是否已准备就绪（存在 code.js）
+ * Check if node is prepared (code.js exists)
  */
 export async function isNodePrepared(workflowId: string, nodeId: string): Promise<boolean> {
 	const nodeDir = getNodeStoragePath(workflowId, nodeId);
@@ -58,7 +58,7 @@ export async function isNodePrepared(workflowId: string, nodeId: string): Promis
 }
 
 /**
- * 保存生成的代码
+ * Save generated code
  */
 export async function saveGeneratedCode(
 	workflowId: string,
@@ -80,7 +80,7 @@ export async function saveGeneratedCode(
 }
 
 /**
- * 加载生成的代码
+ * Load generated code
  */
 export async function loadGeneratedCode(workflowId: string, nodeId: string): Promise<string> {
 	const nodeDir = getNodeStoragePath(workflowId, nodeId);
@@ -89,7 +89,7 @@ export async function loadGeneratedCode(workflowId: string, nodeId: string): Pro
 }
 
 /**
- * 加载 schema
+ * Load schema
  */
 export async function loadSchema(workflowId: string, nodeId: string): Promise<Record<string, unknown>> {
 	const nodeDir = getNodeStoragePath(workflowId, nodeId);
@@ -99,7 +99,7 @@ export async function loadSchema(workflowId: string, nodeId: string): Promise<Re
 }
 
 /**
- * 加载 meta 信息
+ * Load meta information
  */
 export async function loadMeta(workflowId: string, nodeId: string): Promise<Record<string, unknown>> {
 	const nodeDir = getNodeStoragePath(workflowId, nodeId);
@@ -109,7 +109,7 @@ export async function loadMeta(workflowId: string, nodeId: string): Promise<Reco
 }
 
 /**
- * 递归删除目录（兼容性更好的实现）
+ * Recursively delete directory (more compatible implementation)
  */
 async function removeDirectory(dirPath: string): Promise<void> {
 	try {
@@ -126,24 +126,24 @@ async function removeDirectory(dirPath: string): Promise<void> {
 		}
 		await rmdir(dirPath);
 	} catch {
-		// 如果文件或目录不存在，忽略错误
+		// If file or directory doesn't exist, ignore error
 	}
 }
 
 /**
- * 重置节点（删除所有生成的文件）
+ * Reset node (delete all generated files)
  */
 export async function resetNode(workflowId: string, nodeId: string): Promise<void> {
 	const nodeDir = getNodeStoragePath(workflowId, nodeId);
 	try {
 		await removeDirectory(nodeDir);
 	} catch {
-		// 如果目录不存在，忽略错误
+		// If directory doesn't exist, ignore error
 	}
 }
 
 /**
- * 数据脱敏：将真实值替换为类型描述
+ * Data sanitization: replace real values with type descriptions
  */
 export function sanitizeData(value: unknown): Record<string, unknown> {
 	if (value === null || value === undefined) {
@@ -154,7 +154,7 @@ export function sanitizeData(value: unknown): Record<string, unknown> {
 		if (value.length === 0) {
 			return { type: 'array', items: [], example: '[]' };
 		}
-		// 取第一个元素作为示例结构
+		// Take first element as example structure
 		return {
 			type: 'array',
 			items: sanitizeData(value[0]),
@@ -171,7 +171,7 @@ export function sanitizeData(value: unknown): Record<string, unknown> {
 		return sanitized;
 	}
 
-	// 基本类型
+	// Basic types
 	const type = typeof value;
 	return {
 		type,
@@ -180,7 +180,7 @@ export function sanitizeData(value: unknown): Record<string, unknown> {
 }
 
 /**
- * 从输入数据中提取结构信息
+ * Extract structure information from input data
  */
 export function extractInputStructures(inputs: INodeExecutionData[][]): Array<{
 	type: string;
@@ -191,7 +191,7 @@ export function extractInputStructures(inputs: INodeExecutionData[][]): Array<{
 		if (inputItems.length === 0) {
 			return { type: 'empty' };
 		}
-		// 取第一个 item 作为示例
+		// Take first item as example
 		const firstItem = inputItems[0];
 		return {
 			type: 'data',
@@ -202,8 +202,8 @@ export function extractInputStructures(inputs: INodeExecutionData[][]): Array<{
 }
 
 /**
- * 配置输入端口（用于动态输入端口）
- * 参考 n8n Merge 节点的实现
+ * Configure input ports (for dynamic input ports)
+ * Reference n8n Merge node implementation
  */
 export const configuredInputs = (parameters: INodeParameters) => {
 	const numberInputs = (parameters.numberInputs as number) || 1;
@@ -214,7 +214,7 @@ export const configuredInputs = (parameters: INodeParameters) => {
 };
 
 /**
- * 配置输出端口（用于动态输出端口）
+ * Configure output ports (for dynamic output ports)
  */
 export const configuredOutputs = (parameters: INodeParameters) => {
 	const numberOutputs = (parameters.numberOutputs as number) || 1;

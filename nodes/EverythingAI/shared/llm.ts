@@ -13,7 +13,7 @@ interface LLMResponse {
 }
 
 /**
- * 构建系统 Prompt
+ * Build system prompt
  */
 function buildSystemPrompt(
 	inputCount: number,
@@ -21,170 +21,170 @@ function buildSystemPrompt(
 	instruction: string,
 	customPrompt?: string,
 ): string {
-	const defaultPrompt = `你是一个代码生成助手。用户会提供多个输入口的数据结构和一条自然语言指令，你需要生成可执行的 JavaScript 代码。
+	const defaultPrompt = `You are a code generation assistant. Users will provide data structures from multiple input ports and a natural language instruction. You need to generate executable JavaScript code.
 
-## 输入输出约定
-- 输入口用数字 1, 2, 3, ... 表示（共 ${inputCount} 个输入口）
-- 输出口用大写字母 A, B, C, ... 表示（共 ${outputCount} 个输出口）
+## Input/Output Convention
+- Input ports are represented by numbers 1, 2, 3, ... (${inputCount} input ports total)
+- Output ports are represented by uppercase letters A, B, C, ... (${outputCount} output ports total)
 
-## 用户指令
+## User Instruction
 ${instruction}
 
-## 数据结构说明（重要！）
-在 n8n 中，数据项的结构是：
+## Data Structure Description (Important!)
+In n8n, the structure of a data item is:
 \`\`\`javascript
 {
-  json: { /* 实际数据对象 */ },
-  binary: { /* 二进制数据（可选）*/ }
+  json: { /* actual data object */ },
+  binary: { /* binary data (optional) */ }
 }
 \`\`\`
 
-输入数据结构：
-- \`inputs\` 是一个数组，\`inputs[0]\` 对应输入口 1，\`inputs[1]\` 对应输入口 2，以此类推
-- 每个 \`inputs[i]\` 是一个数组，包含该输入口的所有数据项
-- 每个数据项是一个对象，格式为：\`{ json: {...}, binary: {...} }\`
+Input data structure:
+- \`inputs\` is an array, \`inputs[0]\` corresponds to input port 1, \`inputs[1]\` corresponds to input port 2, and so on
+- Each \`inputs[i]\` is an array containing all data items from that input port
+- Each data item is an object in format: \`{ json: {...}, binary: {...} }\`
 
-输出数据结构：
-- 必须返回一个对象，键为输出口字母（'A', 'B', 'C'...），值为数组
-- 每个输出口的数组包含数据项，每个数据项也必须是 \`{ json: {...}, binary: {...} }\` 格式
-- 如果数据项来自输入，必须保持完整的对象结构（包括 json 和 binary）
-- 如果创建新数据项，也必须包含 json 和 binary 字段（binary 可以为空对象）
+Output data structure:
+- Must return an object with output port letters ('A', 'B', 'C'...) as keys and arrays as values
+- Each output port's array contains data items, each data item must also be in \`{ json: {...}, binary: {...} }\` format
+- If data items come from input, must maintain complete object structure (including json and binary)
+- If creating new data items, must also include json and binary fields (binary can be empty object)
 
-## 代码要求
-1. 代码必须是一个 JavaScript 函数，函数签名如下：
+## Code Requirements
+1. Code must be a JavaScript function with the following signature:
    \`\`\`javascript
    function process(inputs) {
-     // inputs 是一个数组，inputs[0] 对应输入口 1，inputs[1] 对应输入口 2，以此类推
-     // 每个 inputs[i] 是一个数组，包含该输入口的所有数据项
-     // 每个数据项格式：{ json: {...}, binary: {...} }
+     // inputs is an array, inputs[0] corresponds to input port 1, inputs[1] corresponds to input port 2, and so on
+     // Each inputs[i] is an array containing all data items from that input port
+     // Each data item format: { json: {...}, binary: {...} }
      
-     // 初始化输出对象（必须初始化所有输出口）
+     // Initialize output object (must initialize all output ports)
      const outputs = {};
      for (let i = 0; i < ${outputCount}; i++) {
        const outputLetter = String.fromCharCode(65 + i); // A, B, C, ...
        outputs[outputLetter] = [];
      }
      
-     // 处理逻辑...
-     // 遍历输入数据时，直接使用 inputs[0], inputs[1] 等
-     // 例如：for (const item of inputs[0]) { ... }
-     // 如果需要，也可以定义变量：const $input = inputs[0]; 然后使用 $input
+     // Processing logic...
+     // When iterating input data, directly use inputs[0], inputs[1], etc.
+     // Example: for (const item of inputs[0]) { ... }
+     // If needed, you can also define a variable: const $input = inputs[0]; then use $input
      
-     // 返回输出对象，每个输出口的数组包含 { json: {...}, binary: {...} } 格式的数据项
+     // Return output object, each output port's array contains data items in { json: {...}, binary: {...} } format
      return outputs;
    }
    \`\`\`
 
-2. 代码必须是纯 JavaScript，不能使用 Node.js 特定的模块（如 fs, path 等）
+2. Code must be pure JavaScript, cannot use Node.js specific modules (such as fs, path, etc.)
 
-3. 返回格式必须是 JSON，包含两个字段：
-   - \`code\`: 生成的 JavaScript 代码字符串（不包含函数定义，只包含函数体内容）
-   - \`schemas\`: 对象，键为输出口字母（'A', 'B', 'C'...），值为该输出口的数据结构描述
+3. Return format must be JSON, containing two fields:
+   - \`code\`: Generated JavaScript code string (does not include function definition, only function body content)
+   - \`schemas\`: Object with output port letters ('A', 'B', 'C'...) as keys and data structure descriptions as values
 
-## 代码示例
+## Code Examples
 
-### 示例 1：简单路由（2个输出口）
-如果用户指令是"当输入口1的数据中status='paid'时发送到A，否则发送到B"，代码应该是：
+### Example 1: Simple Routing (2 output ports)
+If user instruction is "When status='paid' in input 1 data, send to A, otherwise send to B", the code should be:
 \`\`\`javascript
 const outputs = { 'A': [], 'B': [] };
-// 使用 inputs[0] 或 $input 都可以，$input 等同于 inputs[0]
+// Can use inputs[0] or $input, $input is equivalent to inputs[0]
 const $input = inputs[0];
 for (const item of $input) {
   if (item.json.status === 'paid') {
-    outputs['A'].push(item);  // 保持完整的 item 对象结构 { json: {...}, binary: {...} }
+    outputs['A'].push(item);  // Maintain complete item object structure { json: {...}, binary: {...} }
   } else {
-    outputs['B'].push(item);  // 保持完整的 item 对象结构 { json: {...}, binary: {...} }
+    outputs['B'].push(item);  // Maintain complete item object structure { json: {...}, binary: {...} }
   }
 }
 return outputs;
 \`\`\`
 
-### 示例 1.1：使用 $input 变量（推荐）
-如果用户指令是"将所有输入口1的数据输出到A"，代码应该是：
+### Example 1.1: Using $input Variable (Recommended)
+If user instruction is "Output all data from input 1 to A", the code should be:
 \`\`\`javascript
 const outputs = { 'A': [] };
-// 定义 $input 变量，指向第一个输入口的数据
+// Define $input variable, pointing to first input port's data
 const $input = inputs[0];
-// 遍历所有数据项
+// Iterate all data items
 for (const item of $input) {
-  outputs['A'].push(item);  // 保持完整的 item 对象结构
+  outputs['A'].push(item);  // Maintain complete item object structure
 }
 return outputs;
 \`\`\`
 
-注意：
-- 必须初始化所有输出口，即使某些输出口可能为空数组
-- 推荐使用 \`const $input = inputs[0];\` 来定义 $input 变量，使代码更符合 n8n 风格
-- $input 等同于 inputs[0]，表示第一个输入口的所有数据项数组
+Note:
+- Must initialize all output ports, even if some output ports may be empty arrays
+- Recommended to use \`const $input = inputs[0];\` to define $input variable, making code more n8n-style
+- $input is equivalent to inputs[0], representing all data items array from the first input port
 
-### 示例 2：修改数据
-如果用户指令是"给输入口1的所有数据添加新字段myNewField=1，然后输出到A"，代码应该是：
+### Example 2: Modify Data
+If user instruction is "Add new field myNewField=1 to all data from input 1, then output to A", the code should be:
 \`\`\`javascript
 const outputs = { 'A': [] };
-// 直接使用 inputs[0] 遍历数据
+// Directly use inputs[0] to iterate data
 for (const item of inputs[0]) {
-  item.json.myNewField = 1;  // 修改 json 字段
-  outputs['A'].push(item);   // 保持完整的 item 对象结构
+  item.json.myNewField = 1;  // Modify json field
+  outputs['A'].push(item);   // Maintain complete item object structure
 }
 return outputs;
 \`\`\`
 
-### 示例 3：创建新数据项
-如果用户指令是"创建新数据项输出到A，包含字段count=10"，代码应该是：
+### Example 3: Create New Data Item
+If user instruction is "Create new data item output to A, containing field count=10", the code should be:
 \`\`\`javascript
 const outputs = { 'A': [] };
 const newItem = {
   json: { count: 10 },
-  binary: {}  // 必须包含 binary 字段，即使为空
+  binary: {}  // Must include binary field, even if empty
 };
 outputs['A'].push(newItem);
 return outputs;
 \`\`\`
 
-### 示例 4：条件路由但不转发数据（重要！）
-如果用户指令是"如果第一个item的language是txt，走B路线（啥数据也别转发）"，代码应该是：
+### Example 4: Conditional Routing Without Forwarding Data (Important!)
+If user instruction is "If the first item's language is txt, go to route B (don't forward any data)", the code should be:
 \`\`\`javascript
 const outputs = { 'A': [], 'B': [] };
 const $input = inputs[0] || [];
 
 if ($input.length > 0 && $input[0].json && $input[0].json.language === 'txt') {
-  // 走 B 路线，但不转发数据
-  // 注意：即使不转发数据，被选中的路线（B）也必须至少有一个空数据项，否则流程不会继续
+  // Go to route B, but don't forward data
+  // Note: Even if not forwarding data, the selected route (B) must have at least one empty data item, otherwise workflow won't continue
   outputs['B'].push({ json: {}, binary: {} });
-  // 重要：未被选中的路线（A）应该保持空数组，这样该路径不会执行
-  // 不要给 A 添加任何数据项
+  // Important: Unselected route (A) should remain empty array, so this path won't execute
+  // Don't add any data items to A
 } else {
-  // 其他情况，转发到 A
+  // Other cases, forward to A
   for (const item of $input) {
     outputs['A'].push(item);
   }
-  // 如果 A 没有数据，也要至少有一个空数据项
+  // If A has no data, also need at least one empty data item
   if (outputs['A'].length === 0) {
     outputs['A'].push({ json: {}, binary: {} });
   }
-  // 重要：未被选中的路线（B）应该保持空数组
-  // 不要给 B 添加任何数据项
+  // Important: Unselected route (B) should remain empty array
+  // Don't add any data items to B
 }
 
 return outputs;
 \`\`\`
 
-### 示例 5：停止流程（重要！）
-如果用户指令是"如果第一个item的language是txt，就停到这个节点"或"xxx情况下就停止"，代码应该是：
+### Example 5: Stop Workflow (Important!)
+If user instruction is "If the first item's language is txt, stop at this node" or "stop in xxx case", the code should be:
 \`\`\`javascript
 const outputs = { 'A': [], 'B': [] };
 const $input = inputs[0] || [];
 
 if ($input.length > 0 && $input[0].json && $input[0].json.language === 'txt') {
-  // 停止流程：所有输出口都保持空数组，不输出任何数据
-  // 这样 n8n 流程会停止，不会继续执行后续节点
-  // 不要给任何输出口添加数据项
+  // Stop workflow: all output ports remain empty arrays, don't output any data
+  // This way n8n workflow will stop, won't continue executing subsequent nodes
+  // Don't add any data items to any output port
 } else {
-  // 其他情况，正常转发数据
+  // Other cases, forward data normally
   for (const item of $input) {
     outputs['A'].push(item);
   }
-  // 如果 A 没有数据，也要至少有一个空数据项
+  // If A has no data, also need at least one empty data item
   if (outputs['A'].length === 0) {
     outputs['A'].push({ json: {}, binary: {} });
   }
@@ -193,35 +193,35 @@ if ($input.length > 0 && $input[0].json && $input[0].json.language === 'txt') {
 return outputs;
 \`\`\`
 
-**关键点**：
-1. **"走X路线"** = 只走X路线，其他路线应该保持空数组（不输出任何数据项）
-   - 被选中的路线需要输出数据项（即使是空数据项 \`{ json: {}, binary: {} }\`），这样 n8n 流程才能继续执行
-   - 未被选中的路线应该保持空数组，这样 n8n 就不会执行该路径
-2. **"停到这个节点"或"停止"** = 所有输出口都应该是空数组，不输出任何数据项
-   - 这样 n8n 流程会停止，不会继续执行后续节点
-   - 不要给任何输出口添加数据项
+**Key Points**:
+1. **"Go to route X"** = Only go to route X, other routes should remain empty arrays (don't output any data items)
+   - Selected route needs to output data items (even if empty data item \`{ json: {}, binary: {} }\`), so n8n workflow can continue executing
+   - Unselected routes should remain empty arrays, so n8n won't execute those paths
+2. **"Stop at this node" or "stop"** = All output ports should be empty arrays, don't output any data items
+   - This way n8n workflow will stop, won't continue executing subsequent nodes
+   - Don't add any data items to any output port
 
-## 重要提醒
-- **必须返回一个对象**，不能返回数组、null、undefined 或其他类型
-- 返回对象的格式：\`{ "A": [...], "B": [...], ... }\`，键是输出口字母，值是数据项数组
-- **路由规则**（非常重要！）：
-  1. **"走X路线"** = 只走X路线，其他路线应该保持空数组（不输出任何数据项）
-     - 被选中的路线需要输出数据项（即使是空数据项 \`{ json: {}, binary: {} }\`），这样 n8n 流程才能继续执行
-     - 未被选中的路线应该保持空数组，这样 n8n 就不会执行该路径
-  2. **"停到这个节点"或"停止"** = 所有输出口都应该是空数组，不输出任何数据项
-     - 这样 n8n 流程会停止，不会继续执行后续节点
-     - 不要给任何输出口添加数据项
-  3. **正常转发数据** = 如果某个输出口需要转发数据，但最终没有数据可转发，该输出口也应该至少包含一个空数据项：\`[{ json: {}, binary: {} }]\`
-- 数据项必须保持 \`{ json: {...}, binary: {...} }\` 格式
-- 从输入获取的数据项，必须完整保留（包括 json 和 binary）
-- 创建新数据项时，必须同时包含 json 和 binary 字段
-- 不要只返回 json 对象，必须返回完整的数据项对象
-- 访问输入数据：直接使用 \`inputs[0]\` 访问第一个输入口，\`inputs[1]\` 访问第二个输入口，以此类推
-- 如果需要，可以定义变量：\`const $input = inputs[0];\`，但这不是必须的
-- **最后必须使用 return 语句返回对象**，例如：\`return outputs;\`
+## Important Reminders
+- **Must return an object**, cannot return array, null, undefined, or other types
+- Return object format: \`{ "A": [...], "B": [...], ... }\`, keys are output port letters, values are data item arrays
+- **Routing Rules** (Very Important!):
+  1. **"Go to route X"** = Only go to route X, other routes should remain empty arrays (don't output any data items)
+     - Selected route needs to output data items (even if empty data item \`{ json: {}, binary: {} }\`), so n8n workflow can continue executing
+     - Unselected routes should remain empty arrays, so n8n won't execute those paths
+  2. **"Stop at this node" or "stop"** = All output ports should be empty arrays, don't output any data items
+     - This way n8n workflow will stop, won't continue executing subsequent nodes
+     - Don't add any data items to any output port
+  3. **Normal data forwarding** = If an output port needs to forward data but ultimately has no data to forward, that output port should also contain at least one empty data item: \`[{ json: {}, binary: {} }]\`
+- Data items must maintain \`{ json: {...}, binary: {...} }\` format
+- Data items obtained from input must be completely preserved (including json and binary)
+- When creating new data items, must include both json and binary fields
+- Don't just return json object, must return complete data item object
+- Access input data: directly use \`inputs[0]\` to access first input port, \`inputs[1]\` to access second input port, and so on
+- If needed, can define variable: \`const $input = inputs[0];\`, but this is not required
+- **Must use return statement to return object at the end**, for example: \`return outputs;\`
 
-## 返回格式示例
-正确的返回格式：
+## Return Format Examples
+Correct return format:
 \`\`\`javascript
 return {
   'A': [{ json: {...}, binary: {...} }, ...],
@@ -229,15 +229,15 @@ return {
 };
 \`\`\`
 
-错误的返回格式（不要这样做）：
-- \`return [];\` ❌ 不能返回数组
-- \`return null;\` ❌ 不能返回 null
-- \`return outputs['A'];\` ❌ 不能只返回单个输出口的数据
+Incorrect return formats (don't do this):
+- \`return [];\` ❌ Cannot return array
+- \`return null;\` ❌ Cannot return null
+- \`return outputs['A'];\` ❌ Cannot return only single output port's data
 
-请严格按照用户指令和数据结构生成代码。`;
+Please strictly follow user instructions and data structure to generate code.`;
 
 	if (customPrompt) {
-		// 替换占位符
+		// Replace placeholders
 		return customPrompt
 			.replace(/\{\{instruction\}\}/g, instruction)
 			.replace(/\{\{inputCount\}\}/g, inputCount.toString())
@@ -249,28 +249,28 @@ return {
 }
 
 /**
- * 构建用户 Prompt（包含数据结构）
+ * Build user prompt (includes data structure)
  */
 function buildUserPrompt(inputStructures: Array<{
 	type: string;
 	structure?: Record<string, unknown>;
 	itemCount?: number;
 }>): string {
-	let prompt = '## 输入数据结构\n\n';
+	let prompt = '## Input Data Structure\n\n';
 	inputStructures.forEach((struct, index) => {
-		prompt += `### 输入口 ${index + 1}\n`;
+		prompt += `### Input Port ${index + 1}\n`;
 		if (struct.type === 'empty') {
-			prompt += '无数据\n\n';
+			prompt += 'No data\n\n';
 		} else {
-			prompt += `数据项数量: ${struct.itemCount}\n`;
-			prompt += `数据结构:\n\`\`\`json\n${JSON.stringify(struct.structure, null, 2)}\n\`\`\`\n\n`;
+			prompt += `Data item count: ${struct.itemCount}\n`;
+			prompt += `Data structure:\n\`\`\`json\n${JSON.stringify(struct.structure, null, 2)}\n\`\`\`\n\n`;
 		}
 	});
 	return prompt;
 }
 
 /**
- * 调用 LLM 生成代码
+ * Call LLM to generate code
  */
 export async function generateCodeWithLLM(
 	this: IExecuteFunctions,
@@ -321,39 +321,39 @@ export async function generateCodeWithLLM(
 
 		const content = response.choices?.[0]?.message?.content;
 		if (!content) {
-			throw new NodeOperationError(this.getNode(), 'LLM 返回内容为空');
+			throw new NodeOperationError(this.getNode(), 'LLM returned empty content');
 		}
 
 		const parsed = JSON.parse(content);
 		
-		// 验证返回格式
+		// Validate return format
 		if (!parsed.code || !parsed.schemas) {
 			throw new NodeOperationError(
 				this.getNode(),
-				'LLM 返回格式不正确，必须包含 code 和 schemas 字段',
+				'LLM returned incorrect format, must include code and schemas fields',
 			);
 		}
 
-		// 包装代码为完整函数
-		// 确保代码最后有 return 语句
+		// Wrap code as complete function
+		// Ensure code has return statement at the end
 		let codeBody = parsed.code.trim();
 		
-		// 检查是否包含 return 语句（排除注释中的 return）
+		// Check if contains return statement (exclude return in comments)
 		const hasReturn = /return\s+/.test(codeBody) || codeBody.includes('return outputs');
 		
 		if (!hasReturn) {
-			// 如果没有 return 语句，添加默认的 return
-			// 初始化所有输出口
+			// If no return statement, add default return
+			// Initialize all output ports
 			let initCode = 'const outputs = {};\n';
 			for (let i = 0; i < outputCount; i++) {
 				const letter = String.fromCharCode(65 + i);
 				initCode += `  outputs['${letter}'] = [];\n`;
 			}
-			// 如果代码中已经有 outputs 的定义，就不重复初始化
+			// If code already has outputs definition, don't repeat initialization
 			if (!codeBody.includes('outputs')) {
 				codeBody = initCode + codeBody;
 			}
-			// 确保最后有 return
+			// Ensure there's a return at the end
 			if (!codeBody.trim().endsWith('return outputs;') && !codeBody.trim().endsWith('return outputs')) {
 				codeBody += '\nreturn outputs;';
 			}
@@ -373,12 +373,12 @@ export async function generateCodeWithLLM(
 			if (httpError.response) {
 				throw new NodeOperationError(
 					this.getNode(),
-					`LLM API 调用失败: ${httpError.response.status} ${httpError.response.statusText} - ${JSON.stringify(httpError.response.data)}`,
+					`LLM API call failed: ${httpError.response.status} ${httpError.response.statusText} - ${JSON.stringify(httpError.response.data)}`,
 				);
 			}
 		}
 		const errorMessage = error instanceof Error ? error.message : String(error);
-		throw new NodeOperationError(this.getNode(), `LLM 调用失败: ${errorMessage}`);
+		throw new NodeOperationError(this.getNode(), `LLM call failed: ${errorMessage}`);
 	}
 }
 
