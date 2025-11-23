@@ -7,6 +7,33 @@ import type {
 	INodeTypeDescription,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
+// Import Node.js built-in modules that can be used in generated code
+import * as https from 'https';
+import * as http from 'http';
+import * as crypto from 'crypto';
+import * as url from 'url';
+import * as querystring from 'querystring';
+import * as buffer from 'buffer';
+import * as stream from 'stream';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import * as util from 'util';
+import * as zlib from 'zlib';
+import * as events from 'events';
+import * as child_process from 'child_process';
+import * as cluster from 'cluster';
+import * as dgram from 'dgram';
+import * as dns from 'dns';
+import * as net from 'net';
+import * as readline from 'readline';
+import * as repl from 'repl';
+import * as string_decoder from 'string_decoder';
+import * as timers from 'timers';
+import * as tls from 'tls';
+import * as tty from 'tty';
+import * as vm from 'vm';
+import * as worker_threads from 'worker_threads';
 import {
 	isNodePrepared,
 	saveGeneratedCode,
@@ -399,12 +426,79 @@ export class EverythingAi implements INodeType {
 			}
 		}
 
-		const processFunction = new Function('inputs', functionBody);
+		// Create a custom require function that provides access to Node.js built-in modules
+		// This allows the generated code to use require('https'), require('http'), require('fs'), etc.
+		const customRequire = (moduleName: string) => {
+			const modules: Record<string, unknown> = {
+				'https': https,
+				'http': http,
+				'crypto': crypto,
+				'url': url,
+				'querystring': querystring,
+				'buffer': buffer,
+				'stream': stream,
+				'fs': fs,
+				'path': path,
+				'os': os,
+				'util': util,
+				'zlib': zlib,
+				'events': events,
+				'child_process': child_process,
+				'cluster': cluster,
+				'dgram': dgram,
+				'dns': dns,
+				'net': net,
+				'readline': readline,
+				'repl': repl,
+				'string_decoder': string_decoder,
+				'timers': timers,
+				'tls': tls,
+				'tty': tty,
+				'vm': vm,
+				'worker_threads': worker_threads,
+			};
+			if (modules[moduleName]) {
+				return modules[moduleName];
+			}
+			// Try to use Node.js's built-in require for other modules
+			try {
+				// eslint-disable-next-line @typescript-eslint/no-require-imports
+				return require(moduleName);
+			} catch {
+				throw new Error(`Module '${moduleName}' is not available. Available built-in modules: ${Object.keys(modules).join(', ')}`);
+			}
+		};
+
+		// Create function with require available in scope
+		// Wrap function body in async function to support await
+		const asyncFunctionBody = `
+			return (async function() {
+				${functionBody}
+			})();
+		`;
+		
+		const processFunction = new Function(
+			'inputs',
+			'require',
+			asyncFunctionBody
+		);
 
 		try {
 			let result;
 			try {
-				result = processFunction(allInputs);
+				// Call the function with inputs and custom require
+				result = processFunction(allInputs, customRequire);
+				// Result should always be a Promise now, await it
+				if (result && typeof result.then === 'function') {
+					result = await result;
+				} else if (result === undefined) {
+					// If result is undefined, the async IIFE might not have been returned
+					// Try to extract and execute the async code differently
+					throw new NodeOperationError(
+						this.getNode(),
+						'Generated code returned undefined. The code may have used async IIFE without returning it. Please ensure async code returns the Promise or uses await directly in function body.',
+					);
+				}
 			} catch (execError: unknown) {
 				const execErrorMessage = execError instanceof Error ? execError.message : String(execError);
 				throw new NodeOperationError(

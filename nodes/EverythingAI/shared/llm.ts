@@ -75,7 +75,61 @@ Output data structure:
    }
    \`\`\`
 
-2. Code must be pure JavaScript, cannot use Node.js specific modules (such as fs, path, etc.)
+2. Code can use Node.js built-in modules via \`require\`. All standard Node.js built-in modules are available:
+   - **Network**: \`http\`, \`https\`, \`net\`, \`dgram\`, \`dns\`, \`tls\`
+   - **File System**: \`fs\`, \`path\`
+   - **Utilities**: \`crypto\`, \`url\`, \`querystring\`, \`util\`, \`buffer\`, \`stream\`, \`zlib\`, \`string_decoder\`
+   - **OS**: \`os\`, \`process\` (global, no need to require)
+   - **Async**: \`events\`, \`timers\`
+   - **Process**: \`child_process\`, \`cluster\`, \`worker_threads\`
+   - **Other**: \`readline\`, \`repl\`, \`tty\`, \`vm\`
+   - Example: \`const fs = require('fs');\`, \`const https = require('https');\`, \`const crypto = require('crypto');\`
+   - You can use these modules to make HTTP requests, read/write files, encrypt data, parse URLs, etc.
+
+3. **IMPORTANT: Async Operations (HTTP requests, file I/O, etc.)**
+   - **MUST use async/await or Promise-based approach** - DO NOT use blocking/synchronous waiting patterns
+   - The execution environment supports async/await and will properly await Promise results
+   - For HTTP requests, wrap in async function and use Promise:
+   \`\`\`javascript
+   function httpGet(url) {
+     return new Promise((resolve, reject) => {
+       https.get(url, (res) => {
+         let data = '';
+         res.on('data', (chunk) => { data += chunk; });
+         res.on('end', () => { resolve(data); });
+       }).on('error', reject);
+     });
+   }
+   \`\`\`
+   - Then use async/await: \`const html = await httpGet('https://example.com');\`
+   - **DO NOT** use blocking patterns like \`while (!done) { ... }\` or \`Atomics.wait\` - these will cause timeouts
+   - **CRITICAL**: If your code needs async operations, you have two options:
+     - **Option 1 (Recommended)**: Make the entire function body async and return the Promise:
+     \`\`\`javascript
+     const outputs = {};
+     // ... initialize outputs ...
+     const $input = inputs[0] || [];
+     
+     // Use async/await directly in function body
+     if ($input.length > 0 && $input[0].json && $input[0].json.language === 'txt') {
+       const html = await httpGet('https://example.com');
+       outputs['B'].push({ json: { html }, binary: {} });
+     } else {
+       for (const item of $input) {
+         outputs['A'].push(item);
+       }
+     }
+     
+     return outputs;
+     \`\`\`
+     - **Option 2**: If you must use async IIFE, **MUST return the Promise**:
+     \`\`\`javascript
+     return (async () => {
+       // ... async operations ...
+       return outputs;
+     })();
+     \`\`\`
+     - **DO NOT** use \`(async () => { ... })();\` without returning it - this will return undefined
 
 3. Return format must be JSON, containing two fields:
    - \`code\`: Generated JavaScript code string (does not include function definition, only function body content)
@@ -140,6 +194,65 @@ const newItem = {
 outputs['A'].push(newItem);
 return outputs;
 \`\`\`
+
+### Example 3.1: Using Node.js Built-in Modules with Async Operations
+If user instruction requires HTTP requests, file operations, or other Node.js functionality, you can use \`require\`:
+\`\`\`javascript
+const https = require('https');
+
+// Helper function to make HTTP GET request (returns Promise)
+function httpGet(urlString) {
+  return new Promise((resolve, reject) => {
+    https.get(urlString, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => { resolve(data); });
+    }).on('error', reject);
+  });
+}
+
+const outputs = { 'A': [] };
+const $input = inputs[0] || [];
+
+// Use async/await directly in function body (RECOMMENDED)
+if ($input.length > 0 && $input[0].json && $input[0].json.language === 'txt') {
+  // Example: Make HTTP request
+  const html = await httpGet('https://api.example.com/data');
+  
+  // Example: Read file (if needed) - use async version
+  // const fileContent = await fs.promises.readFile('/path/to/file', 'utf-8');
+  
+  outputs['A'].push({ json: { html }, binary: {} });
+} else {
+  for (const item of $input) {
+    outputs['A'].push(item);
+  }
+}
+
+return outputs;
+\`\`\`
+
+**Alternative**: If you must use async IIFE, **MUST return the Promise**:
+\`\`\`javascript
+return (async () => {
+  const html = await httpGet('https://api.example.com/data');
+  outputs['A'].push({ json: { html }, binary: {} });
+  return outputs;
+})();
+\`\`\`
+
+**Important Notes**:
+- **MUST use async/await or Promise** for async operations (HTTP requests, file I/O, etc.)
+- **DO NOT use blocking patterns** like \`while (!done) { ... }\` or \`Atomics.wait\` - these will cause timeouts
+- Wrap async code in \`(async () => { ... })();\` if needed
+- All Node.js built-in modules are available via \`require\`:
+  - **Network**: \`http\`, \`https\`, \`net\`, \`dgram\`, \`dns\`, \`tls\`
+  - **File System**: \`fs\`, \`path\`
+  - **Utilities**: \`crypto\`, \`url\`, \`querystring\`, \`util\`, \`buffer\`, \`stream\`, \`zlib\`, \`string_decoder\`
+  - **OS**: \`os\`
+  - **Async**: \`events\`, \`timers\`
+  - **Process**: \`child_process\`, \`cluster\`, \`worker_threads\`
+  - **Other**: \`readline\`, \`repl\`, \`tty\`, \`vm\`
 
 ### Example 4: Conditional Routing Without Forwarding Data (Important!)
 If user instruction is "If the first item's language is txt, go to route B (don't forward any data)", the code should be:
