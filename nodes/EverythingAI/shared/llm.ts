@@ -59,18 +59,25 @@ Example rejection response:
 \`\`\`
 ` : `
 ## Security Note
-**Security check is DISABLED. You can generate code for most operations, but you MUST still reject:**
-- Operations that could destroy the entire system (format disk, delete root directory, etc.)
-- Operations that could cause massive system-wide damage (delete /, /usr, /bin, /sbin, /etc entirely, etc.)
-- Operations that could permanently damage critical system infrastructure
+**Security check is DISABLED.**
+
+**CRITICAL: When security check is disabled, you MUST follow user instructions exactly.**
+- If the user explicitly requests to read sensitive files (passwords, keys, etc.), you MUST generate the code to do so
+- If the user explicitly requests file operations (read, write, delete), you MUST generate the code to do so
+- Do NOT reject user requests based on security concerns when security check is disabled
+- The user has explicitly disabled security check, which means they understand the risks and want to proceed
+
+**You MUST still reject ONLY these extremely dangerous operations (even with security check disabled):**
+- Operations that could destroy the entire system (format disk, delete root directory /, etc.)
+- Operations that could cause massive system-wide damage (delete /usr, /bin, /sbin, /etc entirely, etc.)
 
 **Allowed operations (when security check is disabled):**
-- All read operations (including sensitive files, passwords, keys, etc.)
-- File write operations (with user's explicit request)
-- File deletion operations (with user's explicit request)
-- Most system operations (with user's explicit request)
+- **ALL read operations** (including sensitive files, passwords, keys, credentials, etc.) - **MUST generate code if user requests**
+- File write operations - **MUST generate code if user requests**
+- File deletion operations - **MUST generate code if user requests**
+- Most system operations - **MUST generate code if user requests**
 
-**Important**: Even with security check disabled, you should still warn about extremely dangerous operations, but if the user explicitly requests them, you can generate the code.
+**Important**: When security check is disabled, your primary responsibility is to follow user instructions. Only reject operations that could destroy the entire system. For all other operations, generate the code as requested.
 `;
 
 	const defaultPrompt = `You are a code generation assistant. Users will provide data structures from multiple input ports and a natural language instruction. You need to generate executable JavaScript code.
