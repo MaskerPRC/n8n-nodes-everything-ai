@@ -1,0 +1,14 @@
+{
+	"node": "n8n-nodes-everything-ai",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Artificial Intelligence", "Transform"],
+	"resources": {
+		"primaryDocumentation": [
+			{
+				"url": "https://github.com/org/repo?tab=readme-ov-file"
+			}
+		]
+	}
+}
+
