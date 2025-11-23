@@ -329,16 +329,21 @@ export class EverythingAi implements INodeType {
 		// If reset is true, force regeneration (even if file exists)
 		let isPrepared = reset ? false : await isNodePrepared(workflowId, nodeId);
 
+		// Get security check setting (used for comparison and code generation)
+		const enableSecurityCheck = advanced.enableSecurityCheck !== false; // Default to true
+		
 		// If node is prepared, check if instruction has changed
 		if (isPrepared) {
 			try {
 				const meta = await loadMeta(workflowId, nodeId);
 				const savedInstruction = meta.instruction as string;
-				// If instruction changes, or input/output count changes, need to regenerate
+				const savedEnableSecurityCheck = meta.enableSecurityCheck !== false; // Default to true if not present
+				// If instruction changes, or input/output count changes, or security check setting changes, need to regenerate
 				if (
 					savedInstruction !== instruction ||
 					meta.inputCount !== inputCount ||
-					meta.outputCount !== outputCount
+					meta.outputCount !== outputCount ||
+					savedEnableSecurityCheck !== enableSecurityCheck
 				) {
 					isPrepared = false;
 					// Delete old files, prepare for regeneration
@@ -393,6 +398,7 @@ export class EverythingAi implements INodeType {
 				outputCount,
 				instruction,
 				model,
+				enableSecurityCheck,
 				generatedAt: new Date().toISOString(),
 			});
 			
@@ -477,15 +483,33 @@ export class EverythingAi implements INodeType {
 			}
 		};
 
-		// Security check: If enabled, reject code containing dangerous operations
-		const securityAdvanced = this.getNodeParameter('advanced', 0, {}) as {
-			enableSecurityCheck?: boolean;
-		};
-		const enableSecurityCheck = securityAdvanced.enableSecurityCheck !== false; // Default to true
+		// Security check: Even when disabled, still block extremely dangerous operations
+		// Note: enableSecurityCheck is already defined above (line 333), reuse it
 		
+		// Always check for extremely dangerous operations (even when security check is disabled)
+		const extremeDangerPatterns = [
+			// Operations that could destroy the entire system
+			/fs\.(rmdir|rm|rmSync).*['"`]\/(['"`]|$)/i, // Delete root directory
+			/fs\.(rmdir|rm|rmSync).*['"`]\/usr/i,
+			/fs\.(rmdir|rm|rmSync).*['"`]\/bin/i,
+			/fs\.(rmdir|rm|rmSync).*['"`]\/sbin/i,
+			/fs\.(rmdir|rm|rmSync).*['"`]\/etc['"`]/i,
+			/child_process\.(exec|execSync|spawn|spawnSync).*['"`].*\b(mkfs|format|dd\s+if=.*of=.*\/dev)/i, // Format disk
+			/child_process\.(exec|execSync|spawn|spawnSync).*['"`].*\brm\s+-rf\s+\//i, // rm -rf /
+		];
+		
+		const hasExtremeDanger = extremeDangerPatterns.some(pattern => pattern.test(code));
+		if (hasExtremeDanger) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`Security: Generated code contains extremely dangerous operations that could destroy the entire system. This is blocked for safety.`,
+			);
+		}
+		
+		// If security check is enabled, also check for other dangerous operations
 		if (enableSecurityCheck) {
-			// Check for dangerous file operations
-			const dangerousPatterns = [
+			// Check for dangerous file operations (write/delete)
+			const dangerousWriteDeletePatterns = [
 				/fs\.(unlink|rmdir|rm|unlinkSync|rmdirSync|rmSync)/i,
 				/fs\.(writeFile|writeFileSync|appendFile|appendFileSync)/i,
 				/child_process\.(exec|execSync|spawn|spawnSync)/i,
@@ -500,12 +524,40 @@ export class EverythingAi implements INodeType {
 				/\bremove\s+.*system/i,
 			];
 			
-			const hasDangerousOperation = dangerousPatterns.some(pattern => pattern.test(code));
+			// Check for sensitive file read operations
+			const sensitiveReadPatterns = [
+				// System critical files
+				/['"`]\/etc\/(passwd|shadow|group|gshadow|sudoers)/i,
+				/['"`]\/etc\/ssh\//i,
+				/['"`]\/root\//i,
+				/['"`]\/home\/.*\/\.ssh\//i,
+				/['"`].*\/\.ssh\/(id_rsa|id_ed25519|id_ecdsa|id_dsa|authorized_keys|known_hosts)/i,
+				/['"`].*\/\.aws\//i,
+				/['"`].*\/\.kube\//i,
+				/['"`].*\/\.docker\//i,
+				/['"`].*\/\.gnupg\//i,
+				/['"`].*\/\.config\/.*\/.*(key|secret|password|token)/i,
+				// Environment variables with sensitive names
+				/process\.env\.(PASSWORD|SECRET|KEY|TOKEN|API_KEY|PRIVATE_KEY|ACCESS_KEY|CREDENTIAL)/i,
+				// Common sensitive file patterns
+				/['"`].*\/(password|secret|key|token|credential|private)['"`]/i,
+				/['"`].*\.(pem|key|p12|pfx|jks|keystore)['"`]/i,
+			];
 			
-			if (hasDangerousOperation) {
+			const hasDangerousWriteDelete = dangerousWriteDeletePatterns.some(pattern => pattern.test(code));
+			const hasSensitiveRead = sensitiveReadPatterns.some(pattern => pattern.test(code));
+			
+			if (hasDangerousWriteDelete) {
 				throw new NodeOperationError(
 					this.getNode(),
-					`Security check: Generated code contains potentially dangerous operations (file deletion, system operations, etc.). This is blocked for safety. If you need these operations, please disable the security check in advanced settings.`,
+					`Security check: Generated code contains potentially dangerous write/delete operations (file deletion, system operations, etc.). This is blocked for safety. If you need these operations, please disable the security check in advanced settings.`,
+				);
+			}
+			
+			if (hasSensitiveRead) {
+				throw new NodeOperationError(
+					this.getNode(),
+					`Security check: Generated code attempts to read sensitive files or information (passwords, keys, credentials, system files, etc.). This is blocked for safety. If you need these operations, please disable the security check in advanced settings.`,
 				);
 			}
 		}

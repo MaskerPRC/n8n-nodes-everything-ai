@@ -27,29 +27,51 @@ function buildSystemPrompt(
 **Security check is ENABLED. You MUST reject any instruction that requests:**
 - File deletion operations (fs.unlink, fs.rmdir, fs.rm, etc.)
 - Directory deletion operations
+- File write operations (fs.writeFile, fs.appendFile, etc.)
 - System file operations
 - Any write/delete operations that could be harmful
 - Operations that modify or delete system directories or critical files
+- **Reading sensitive files or information:**
+  - System critical files (/etc/passwd, /etc/shadow, /etc/ssh/, etc.)
+  - SSH keys and private keys (.ssh/id_rsa, .ssh/id_ed25519, etc.)
+  - Credentials and secrets (.aws/, .kube/, .docker/, .gnupg/, etc.)
+  - Password files, token files, key files (*.pem, *.key, *.p12, etc.)
+  - Environment variables containing sensitive information (PASSWORD, SECRET, KEY, TOKEN, API_KEY, etc.)
+  - Any files containing "password", "secret", "key", "token", "credential", "private" in path or name
 
 **Allowed operations:**
-- Read operations (fs.readFile, fs.readdir, etc.) - these are safe
+- Read operations on non-sensitive files (user data files, application files, etc.)
 - HTTP requests
 - Data processing and transformation
 - Creating new data structures
 
-**If the user instruction contains any dangerous operations, you MUST:**
+**If the user instruction contains any dangerous or sensitive operations, you MUST:**
 1. Return an error message in the \`code\` field explaining why the operation is rejected
-2. Do NOT generate code that performs dangerous operations
+2. Do NOT generate code that performs dangerous or sensitive operations
 3. Suggest safe alternatives if possible
 
 Example rejection response:
 \`\`\`json
 {
-  "code": "// Security check: This instruction requests file deletion which is not allowed for safety reasons. Please use read operations instead or disable security check if you have proper authorization.",
+  "code": "// Security check: This instruction requests reading sensitive files (passwords, keys, etc.) which is not allowed for safety reasons. Please use non-sensitive files instead or disable security check if you have proper authorization.",
   "schemas": { "A": { "type": "array", "items": { "type": "object" } } }
 }
 \`\`\`
-` : '';
+` : `
+## Security Note
+**Security check is DISABLED. You can generate code for most operations, but you MUST still reject:**
+- Operations that could destroy the entire system (format disk, delete root directory, etc.)
+- Operations that could cause massive system-wide damage (delete /, /usr, /bin, /sbin, /etc entirely, etc.)
+- Operations that could permanently damage critical system infrastructure
+
+**Allowed operations (when security check is disabled):**
+- All read operations (including sensitive files, passwords, keys, etc.)
+- File write operations (with user's explicit request)
+- File deletion operations (with user's explicit request)
+- Most system operations (with user's explicit request)
+
+**Important**: Even with security check disabled, you should still warn about extremely dangerous operations, but if the user explicitly requests them, you can generate the code.
+`;
 
 	const defaultPrompt = `You are a code generation assistant. Users will provide data structures from multiple input ports and a natural language instruction. You need to generate executable JavaScript code.
 ${securityWarning}
