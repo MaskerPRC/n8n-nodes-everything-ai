@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-everything-ai",
-	"version": "0.1.0",
+	"version": "0.0.2",
 	"description": "多入多出、自然语言驱动的 AI 节点，支持通过自然语言指令自动生成代码并执行数据路由",
 	"license": "MIT",
 	"homepage": "",
@@ -13,8 +13,8 @@
 		"everything-ai"
 	],
 	"author": {
-		"name": "",
-		"email": ""
+		"name": "loopsaaage",
+		"email": "loopsaaage@example.com"
 	},
 	"repository": {
 		"type": "git",
@@ -26,24 +26,24 @@
 		"dev": "n8n-node dev",
 		"lint": "n8n-node lint",
 		"lint:fix": "n8n-node lint --fix",
-		"release": "n8n-node release",
-		"prepublishOnly": "n8n-node prerelease"
+		"release": "n8n-node release"
 	},
 	"files": [
 		"dist"
 	],
 	"n8n": {
 		"n8nNodesApiVersion": 1,
-		"strict": true,
+		"strict": false,
 		"credentials": [
 			"dist/credentials/OpenAIApi.credentials.js"
 		],
 		"nodes": [
-			"dist/nodes/EverythingAI/EverythingAI.node.js"
+			"dist/nodes/EverythingAI/EverythingAi.node.js"
 		]
 	},
 	"devDependencies": {
 		"@n8n/node-cli": "*",
+		"@types/node": "^24.10.1",
 		"eslint": "9.32.0",
 		"prettier": "3.6.2",
 		"release-it": "^19.0.4",

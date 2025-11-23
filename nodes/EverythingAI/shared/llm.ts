@@ -9,7 +9,7 @@ interface LLMConfig {
 
 interface LLMResponse {
 	code: string;
-	schemas: Record<string, any>;
+	schemas: Record<string, Record<string, unknown>>;
 }
 
 /**
@@ -30,20 +30,47 @@ function buildSystemPrompt(
 ## 用户指令
 ${instruction}
 
+## 数据结构说明（重要！）
+在 n8n 中，数据项的结构是：
+\`\`\`javascript
+{
+  json: { /* 实际数据对象 */ },
+  binary: { /* 二进制数据（可选）*/ }
+}
+\`\`\`
+
+输入数据结构：
+- \`inputs\` 是一个数组，\`inputs[0]\` 对应输入口 1，\`inputs[1]\` 对应输入口 2，以此类推
+- 每个 \`inputs[i]\` 是一个数组，包含该输入口的所有数据项
+- 每个数据项是一个对象，格式为：\`{ json: {...}, binary: {...} }\`
+
+输出数据结构：
+- 必须返回一个对象，键为输出口字母（'A', 'B', 'C'...），值为数组
+- 每个输出口的数组包含数据项，每个数据项也必须是 \`{ json: {...}, binary: {...} }\` 格式
+- 如果数据项来自输入，必须保持完整的对象结构（包括 json 和 binary）
+- 如果创建新数据项，也必须包含 json 和 binary 字段（binary 可以为空对象）
+
 ## 代码要求
 1. 代码必须是一个 JavaScript 函数，函数签名如下：
    \`\`\`javascript
    function process(inputs) {
      // inputs 是一个数组，inputs[0] 对应输入口 1，inputs[1] 对应输入口 2，以此类推
      // 每个 inputs[i] 是一个数组，包含该输入口的所有数据项
-     // 每个数据项是一个对象，包含 json 属性（实际数据）
+     // 每个数据项格式：{ json: {...}, binary: {...} }
      
-     // 返回一个对象，键为输出口字母（'A', 'B', 'C'...），值为该输出口的数据数组
-     return {
-       'A': [...],  // 输出口 A 的数据
-       'B': [...],  // 输出口 B 的数据
-       // ...
-     };
+     // 初始化输出对象（必须初始化所有输出口）
+     const outputs = {};
+     for (let i = 0; i < ${outputCount}; i++) {
+       const outputLetter = String.fromCharCode(65 + i); // A, B, C, ...
+       outputs[outputLetter] = [];
+     }
+     
+     // 处理逻辑...
+     // 遍历输入数据时，使用 for...of 循环
+     // 例如：for (const item of inputs[0]) { ... }
+     
+     // 返回输出对象，每个输出口的数组包含 { json: {...}, binary: {...} } 格式的数据项
+     return outputs;
    }
    \`\`\`
 
@@ -53,19 +80,52 @@ ${instruction}
    - \`code\`: 生成的 JavaScript 代码字符串（不包含函数定义，只包含函数体内容）
    - \`schemas\`: 对象，键为输出口字母（'A', 'B', 'C'...），值为该输出口的数据结构描述
 
-## 示例
-如果用户指令是"当输入口1的数据中status='paid'时发送到A，否则发送到B"，且输入口1的数据结构是 {status: string, amount: number}，那么代码应该是：
+## 代码示例
+
+### 示例 1：简单路由（2个输出口）
+如果用户指令是"当输入口1的数据中status='paid'时发送到A，否则发送到B"，代码应该是：
 \`\`\`javascript
 const outputs = { 'A': [], 'B': [] };
 for (const item of inputs[0]) {
   if (item.json.status === 'paid') {
-    outputs['A'].push(item);
+    outputs['A'].push(item);  // 保持完整的 item 对象结构 { json: {...}, binary: {...} }
   } else {
-    outputs['B'].push(item);
+    outputs['B'].push(item);  // 保持完整的 item 对象结构 { json: {...}, binary: {...} }
   }
 }
 return outputs;
 \`\`\`
+
+注意：必须初始化所有输出口，即使某些输出口可能为空数组。
+
+### 示例 2：修改数据
+如果用户指令是"给输入口1的所有数据添加新字段myNewField=1，然后输出到A"，代码应该是：
+\`\`\`javascript
+const outputs = { 'A': [] };
+for (const item of inputs[0]) {
+  item.json.myNewField = 1;  // 修改 json 字段
+  outputs['A'].push(item);   // 保持完整的 item 对象结构
+}
+return outputs;
+\`\`\`
+
+### 示例 3：创建新数据项
+如果用户指令是"创建新数据项输出到A，包含字段count=10"，代码应该是：
+\`\`\`javascript
+const outputs = { 'A': [] };
+const newItem = {
+  json: { count: 10 },
+  binary: {}  // 必须包含 binary 字段，即使为空
+};
+outputs['A'].push(newItem);
+return outputs;
+\`\`\`
+
+## 重要提醒
+- 数据项必须保持 \`{ json: {...}, binary: {...} }\` 格式
+- 从输入获取的数据项，必须完整保留（包括 json 和 binary）
+- 创建新数据项时，必须同时包含 json 和 binary 字段
+- 不要只返回 json 对象，必须返回完整的数据项对象
 
 请严格按照用户指令和数据结构生成代码。`;
 
@@ -82,7 +142,11 @@ return outputs;
 /**
  * 构建用户 Prompt（包含数据结构）
  */
-function buildUserPrompt(inputStructures: any[]): string {
+function buildUserPrompt(inputStructures: Array<{
+	type: string;
+	structure?: Record<string, unknown>;
+	itemCount?: number;
+}>): string {
 	let prompt = '## 输入数据结构\n\n';
 	inputStructures.forEach((struct, index) => {
 		prompt += `### 输入口 ${index + 1}\n`;
@@ -105,7 +169,11 @@ export async function generateCodeWithLLM(
 	inputCount: number,
 	outputCount: number,
 	instruction: string,
-	inputStructures: any[],
+	inputStructures: Array<{
+		type: string;
+		structure?: Record<string, unknown>;
+		itemCount?: number;
+	}>,
 	customPrompt?: string,
 ): Promise<LLMResponse> {
 	const systemPrompt = buildSystemPrompt(inputCount, outputCount, instruction, customPrompt);
@@ -166,14 +234,18 @@ export async function generateCodeWithLLM(
 			code: fullCode,
 			schemas: parsed.schemas,
 		};
-	} catch (error: any) {
-		if (error.response) {
-			throw new NodeOperationError(
-				this.getNode(),
-				`LLM API 调用失败: ${error.response.status} ${error.response.statusText} - ${JSON.stringify(error.response.data)}`,
-			);
+	} catch (error: unknown) {
+		if (error && typeof error === 'object' && 'response' in error) {
+			const httpError = error as { response?: { status?: number; statusText?: string; data?: unknown } };
+			if (httpError.response) {
+				throw new NodeOperationError(
+					this.getNode(),
+					`LLM API 调用失败: ${httpError.response.status} ${httpError.response.statusText} - ${JSON.stringify(httpError.response.data)}`,
+				);
+			}
 		}
-		throw new NodeOperationError(this.getNode(), `LLM 调用失败: ${error.message}`);
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		throw new NodeOperationError(this.getNode(), `LLM 调用失败: ${errorMessage}`);
 	}
 }
 

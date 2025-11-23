@@ -2,6 +2,7 @@ import type {
 	IAuthenticateGeneric,
 	ICredentialTestRequest,
 	ICredentialType,
+	Icon,
 	INodeProperties,
 } from 'n8n-workflow';
 
@@ -9,6 +10,8 @@ export class OpenAIApi implements ICredentialType {
 	name = 'openAIApi';
 
 	displayName = 'OpenAI API';
+
+	icon: Icon = { light: 'file:../icons/brain.svg', dark: 'file:../icons/brain.dark.svg' };
 
 	documentationUrl = 'https://platform.openai.com/docs/api-reference';
 

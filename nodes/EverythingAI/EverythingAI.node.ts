@@ -3,11 +3,9 @@ import type {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
-	INodePropertyOptions,
 } from 'n8n-workflow';
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import {
-	getNodeStoragePath,
 	isNodePrepared,
 	saveGeneratedCode,
 	loadGeneratedCode,
@@ -16,19 +14,22 @@ import {
 } from './shared/utils';
 import { generateCodeWithLLM } from './shared/llm';
 
-export class EverythingAI implements INodeType {
+export class EverythingAi implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Everything AI',
-		name: 'everythingAI',
-		icon: 'fa:brain',
+		name: 'everythingAi',
+		icon: { light: 'file:../../icons/brain.svg', dark: 'file:../../icons/brain.dark.svg' },
 		group: ['transform'],
 		version: 1,
 		description: '多入多出、自然语言驱动的 AI 节点',
 		subtitle: '={{$parameter["statusDisplay"] || "building"}}',
+		usableAsTool: true,
 		defaults: {
 			name: 'Everything AI',
 		},
 		// 定义最大数量的输入输出（最多 10 个）
+		// 注意：n8n 的输入输出是静态定义的，但我们可以通过 methods 来动态调整
+		// 实际使用的输入输出数量由 inputCount 和 outputCount 参数决定
 		inputs: Array(10).fill(NodeConnectionTypes.Main),
 		outputs: Array(10).fill(NodeConnectionTypes.Main),
 		credentials: [
@@ -41,25 +42,25 @@ export class EverythingAI implements INodeType {
 			{
 				displayName: '输入口数量',
 				name: 'inputCount',
-				type: 'number',
-				default: 1,
-				typeOptions: {
-					minValue: 1,
-					maxValue: 10,
-				},
-				description: '设置输入口的数量（1-10）',
+				type: 'options',
+				options: Array.from({ length: 10 }, (_, i) => ({
+					name: String(i + 1),
+					value: i + 1,
+				})),
+				default: '',
+				description: '选择输入口的数量（1-10）',
 				required: true,
 			},
 			{
 				displayName: '输出口数量',
 				name: 'outputCount',
-				type: 'number',
-				default: 1,
-				typeOptions: {
-					minValue: 1,
-					maxValue: 10,
-				},
-				description: '设置输出口的数量（1-10）',
+				type: 'options',
+				options: Array.from({ length: 10 }, (_, i) => ({
+					name: String(i + 1),
+					value: i + 1,
+				})),
+				default: '',
+				description: '选择输出口的数量（1-10）',
 				required: true,
 			},
 			{
@@ -99,7 +100,7 @@ export class EverythingAI implements INodeType {
 				name: 'reset',
 				type: 'boolean',
 				default: false,
-				description: '点击后将清除已生成的代码，下次执行时重新生成',
+				description: 'Whether to reset the node and clear generated code',
 			},
 			{
 				displayName: '高级设置',
@@ -124,12 +125,7 @@ export class EverythingAI implements INodeType {
 		],
 	};
 
-	methods = {
-		async loadOptions(this: any) {
-			// 这个方法可以用于动态加载选项
-			return {};
-		},
-	};
+	methods = {};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const workflowId = this.getWorkflow().id || 'default';
@@ -141,10 +137,9 @@ export class EverythingAI implements INodeType {
 		const instruction = this.getNodeParameter('instruction', 0) as string;
 		const model = this.getNodeParameter('model', 0) as string;
 		const reset = this.getNodeParameter('reset', 0) as boolean;
-		const advanced = this.getNodeParameter('advanced', 0, {}) as { customPrompt?: string };
-
-		// 检查节点状态（用于更新状态显示）
-		const isPreparedBefore = await isNodePrepared(workflowId, nodeId);
+		const advanced = this.getNodeParameter('advanced', 0, {}) as {
+			customPrompt?: string;
+		};
 
 		// 处理重置
 		if (reset) {
@@ -163,7 +158,7 @@ export class EverythingAI implements INodeType {
 		// 获取所有输入口的数据
 		const allInputs: INodeExecutionData[][] = [];
 		for (let i = 0; i < inputCount; i++) {
-			const inputData = this.getInputData(i);
+			const inputData = this.getInputData(i) as INodeExecutionData[];
 			allInputs.push(inputData);
 		}
 
@@ -171,7 +166,7 @@ export class EverythingAI implements INodeType {
 		const isPrepared = await isNodePrepared(workflowId, nodeId);
 
 		let code: string;
-		let schemas: Record<string, any>;
+		let schemas: Record<string, Record<string, unknown>>;
 
 		if (!isPrepared) {
 			// Building 状态：生成代码
@@ -256,14 +251,14 @@ export class EverythingAI implements INodeType {
 			}
 
 			return outputs;
-		} catch (error: any) {
+		} catch (error: unknown) {
 			if (error instanceof NodeOperationError) {
 				throw error;
 			}
+			const errorMessage = error instanceof Error ? error.message : String(error);
 			throw new NodeOperationError(
 				this.getNode(),
-				`执行生成的代码时出错: ${error.message}`,
-				{ cause: error },
+				`执行生成的代码时出错: ${errorMessage}`,
 			);
 		}
 	}
