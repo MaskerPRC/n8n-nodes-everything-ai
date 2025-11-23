@@ -428,6 +428,7 @@ export async function generateCodeWithLLM(
 		itemCount?: number;
 	}>,
 	customPrompt?: string,
+	enableSecurityCheck?: boolean,
 ): Promise<LLMResponse> {
 	const systemPrompt = buildSystemPrompt(inputCount, outputCount, instruction, customPrompt, enableSecurityCheck);
 	const userPrompt = buildUserPrompt(inputStructures);
