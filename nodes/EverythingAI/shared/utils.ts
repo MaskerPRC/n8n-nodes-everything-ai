@@ -1,7 +1,7 @@
 /* eslint-disable @n8n/community-nodes/no-restricted-imports */
 // Note: This node uses Node.js file system APIs for local storage.
 // It is designed for self-hosted n8n instances and may not work in n8n Cloud.
-import type { INodeExecutionData } from 'n8n-workflow';
+import type { INodeExecutionData, INodeParameters } from 'n8n-workflow';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -99,6 +99,16 @@ export async function loadSchema(workflowId: string, nodeId: string): Promise<Re
 }
 
 /**
+ * 加载 meta 信息
+ */
+export async function loadMeta(workflowId: string, nodeId: string): Promise<Record<string, unknown>> {
+	const nodeDir = getNodeStoragePath(workflowId, nodeId);
+	const metaPath = path.join(nodeDir, META_FILE_NAME);
+	const content = await readFile(metaPath, 'utf-8');
+	return JSON.parse(content);
+}
+
+/**
  * 递归删除目录（兼容性更好的实现）
  */
 async function removeDirectory(dirPath: string): Promise<void> {
@@ -190,4 +200,27 @@ export function extractInputStructures(inputs: INodeExecutionData[][]): Array<{
 		};
 	});
 }
+
+/**
+ * 配置输入端口（用于动态输入端口）
+ * 参考 n8n Merge 节点的实现
+ */
+export const configuredInputs = (parameters: INodeParameters) => {
+	const numberInputs = (parameters.numberInputs as number) || 1;
+	return Array.from({ length: numberInputs }, (_, i) => ({
+		type: 'main',
+		displayName: `Input ${(i + 1).toString()}`,
+	}));
+};
+
+/**
+ * 配置输出端口（用于动态输出端口）
+ */
+export const configuredOutputs = (parameters: INodeParameters) => {
+	const numberOutputs = (parameters.numberOutputs as number) || 1;
+	return Array.from({ length: numberOutputs }, (_, i) => ({
+		type: 'main',
+		displayName: `Output ${String.fromCharCode(65 + i)}`, // A, B, C, ...
+	}));
+};
 
