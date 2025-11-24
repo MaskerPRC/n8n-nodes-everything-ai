@@ -26,6 +26,10 @@ We have several exciting features planned for future releases:
 - [ ] **📦 Extended NPM Package Support**: Support more popular NPM packages in generated code. 
   - **Lightweight Libraries** (e.g., DOM parsing libraries like Cheerio, jsdom): These will be compiled and bundled locally for easy use.
   - **Heavy Libraries** (e.g., Playwright, Puppeteer): These require binary installations and will be supported through a public Docker image. The Docker image will allow users to configure and install all required libraries. Remote execution will be supported using Node.js remote package for connecting to the Docker container. This approach will expand the capabilities of AI-generated code for web scraping, browser automation, and DOM manipulation tasks.
+- [ ] **🔧 Intelligent Data Preprocessing & Context Optimization**: For large structured data (e.g., JSON, XML), implement a two-step intelligent preprocessing pipeline:
+  - **Step 1 - Data Analysis & Preprocessing Logic Generation**: First, call the LLM to analyze a sample of the input data and understand its structure. The LLM will then generate preprocessing logic to simplify and structure the data (e.g., extract key fields, summarize long text, normalize nested structures).
+  - **Step 2 - Data Preprocessing & Code Generation**: Execute the generated preprocessing logic to transform the raw data into a more concise, structured format. Then use this optimized data as context for the main code generation step.
+  - This two-step approach will allow the node to handle very large or complex structured data more efficiently by first understanding and simplifying it before generating the final processing code. The preprocessing step is independent from the code generation step, allowing for better token usage and more accurate code generation.
 
 ---
 
