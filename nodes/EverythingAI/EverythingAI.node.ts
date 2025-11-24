@@ -248,13 +248,13 @@ export class EverythingAI implements INodeType {
 								displayName: 'Remote Execution Server URL',
 								name: 'remoteExecutionServerUrl',
 								type: 'string',
-								default: 'tcp://host.docker.internal:5004',
+								default: 'tcp://172.18.0.1:5004',
 								displayOptions: {
 									show: {
 										playwright: [true],
 									},
 								},
-								description: 'Remote execution server URL. Default: tcp://host.docker.internal:5004 (for Docker network). For localhost, use tcp://localhost:5004. For remote server, use tcp://IP:PORT.',
+								description: 'Remote execution server URL. Default: tcp://172.18.0.1:5004 (for Docker network). For localhost, use tcp://localhost:5004. For remote server, use tcp://IP:PORT.',
 								required: true,
 							},
 							{
