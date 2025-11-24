@@ -1,8 +1,41 @@
 import type { INodeExecutionData } from 'n8n-workflow';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const dnode = require('dnode');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const net = require('net');
+
+// Mock weak module before loading dnode
+// weak 是 dnode 的可选依赖，用于弱引用（内存管理）
+// 对于我们的 RPC 场景，弱引用不是必需的，直接 mock 即可
+const Module = require('module');
+const originalRequire = Module.prototype.require;
+
+// 简单的 weak mock：返回一个函数，返回对象本身（不实现真正的弱引用）
+const weakMock = function(obj: unknown) {
+	return {
+		get: function() {
+			return obj;
+		}
+	};
+};
+
+// 拦截 require，当 dnode 尝试加载 'weak' 时返回 mock
+Module.prototype.require = function(id: string) {
+	if (id === 'weak') {
+		// 先尝试加载 weak-napi（如果已安装），否则使用 mock
+		try {
+			return require('weak-napi');
+		} catch {
+			return weakMock;
+		}
+	}
+	return originalRequire.apply(this, arguments);
+};
+
+// 加载 dnode（此时 weak 已经被 mock）
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const dnode = require('dnode');
+
+// 恢复原始的 require（dnode 已经加载完成）
+Module.prototype.require = originalRequire;
 
 /**
  * Execute code remotely using dnode RPC

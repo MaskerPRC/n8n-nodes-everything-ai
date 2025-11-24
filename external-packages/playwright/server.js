@@ -15,7 +15,7 @@
 
 const dnode = require('dnode');
 const net = require('net');
-const { chromium, firefox, webkit } = require('playwright');
+const { chromium } = require('playwright');
 
 // Configuration
 const PORT = process.env.PORT || 5004;
@@ -40,7 +40,7 @@ const service = {
 			// Create a safe execution context with Playwright available
 			const safeRequire = (moduleName) => {
 				if (moduleName === 'playwright') {
-					return { chromium, firefox, webkit };
+					return { chromium };
 				}
 				throw new Error(`Module '${moduleName}' is not allowed. Only 'playwright' is available.`);
 			};
@@ -48,7 +48,7 @@ const service = {
 			// Wrap code in async function
 			const asyncCode = `
 				return (async function() {
-					const { chromium, firefox, webkit } = require('playwright');
+					const { chromium } = require('playwright');
 					${code}
 				})();
 			`;
