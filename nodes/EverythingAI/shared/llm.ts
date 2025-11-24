@@ -398,11 +398,75 @@ return outputs;
 
 **Important Notes for Playwright**:
 - **Browser lifecycle**: A \`browser\` instance is injected. **Do NOT call \`chromium.launch()\` or \`browser.close()\`.**
-- **Close what you open**: Always close pages and contexts you create to avoid leaks.
+- **Close what you open**: Always close pages and contexts you create to avoid leaks. **BUT**: If you reuse an existing page from \`browser.contexts()\`, do NOT close it.
+- **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
 - **URL Protocol**: Always ensure URLs include http:// or https:// before calling \`page.goto()\`.
 - **Instance reuse**: Include \`playwrightSession.instanceId\` in your output (if present) so downstream nodes can reuse the same browser.
 - **Return n8n format**: Always return data in \`{ json: {...}, binary: {...} }\` format.
 - **Remote execution**: Playwright code runs on a remote Docker container.
+
+**Example: Screenshot Current Page**
+If user wants to screenshot "current page" or "existing page", check for existing pages first:
+\`\`\`javascript
+const outputs = { 'A': [] };
+
+// Check for existing pages first
+const contexts = browser.contexts();
+let page = null;
+let context = null;
+let shouldCloseContext = false;
+
+// Try to find an existing page
+for (const ctx of contexts) {
+  const pages = ctx.pages();
+  if (pages.length > 0) {
+    page = pages[0];
+    context = ctx;
+    break;
+  }
+}
+
+// If no existing page, create a new one
+if (!page) {
+  context = await browser.newContext();
+  page = await context.newPage();
+  shouldCloseContext = true;
+  
+  // Navigate if URL provided in input
+  const $input = inputs[0] || [];
+  if ($input.length > 0 && $input[0].json && $input[0].json.url) {
+    const url = ensureUrlProtocol($input[0].json.url);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+  }
+}
+
+// Take screenshot
+const buffer = await page.screenshot({ fullPage: true });
+const base64 = buffer.toString('base64');
+
+outputs['A'].push({
+  json: {
+    url: page.url(),
+    instanceId: playwrightSession.instanceId || null,
+  },
+  binary: {
+    screenshot: {
+      data: base64,
+      mimeType: 'image/png',
+      fileExtension: 'png',
+      fileName: 'screenshot.png'
+    }
+  }
+});
+
+// Only close if we created a new context/page
+if (shouldCloseContext && context) {
+  await page.close();
+  await context.close();
+}
+
+return outputs;
+\`\`\`
 
 ### Example 3.3: Using Cheerio for HTML/DOM Parsing
 If user instruction requires parsing HTML or manipulating DOM, you can use \`cheerio\`:

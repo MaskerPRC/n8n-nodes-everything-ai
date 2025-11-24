@@ -155,15 +155,24 @@ const service = {
 			const result = await func(safeRequire, inputs, environment);
 			console.log('Code executed successfully, result:', typeof result);
 
-			if (shouldCloseAfterExecution) {
+			// Close browser if keepInstance is false (regardless of whether instance was reused or newly created)
+			if (!executionContext.keepInstance) {
+				if (browserRecord.browser && browserRecord.browser.isConnected()) {
+					await browserRecord.browser.close().catch((error) => {
+						console.error('Failed to close browser after execution:', error);
+					});
+				}
+				// Remove from Map if instance exists
+				if (activeInstanceId) {
+					browserInstances.delete(activeInstanceId);
+					console.log(`Browser instance ${activeInstanceId} closed and removed (keepInstance=false)`);
+					activeInstanceId = undefined;
+				}
+			} else if (shouldCloseAfterExecution) {
+				// Fallback: close if shouldCloseAfterExecution is true (for newly created instances without keepInstance)
 				await browserRecord.browser.close().catch((error) => {
 					console.error('Failed to close browser after execution:', error);
 				});
-			}
-
-			if (!executionContext.keepInstance && createdNewInstance && activeInstanceId) {
-				browserInstances.delete(activeInstanceId);
-				activeInstanceId = undefined;
 			}
 
 			let responsePayload = result;
@@ -171,9 +180,9 @@ const service = {
 				responsePayload = { output1: [], __rawResult: responsePayload };
 			}
 
-			const instanceIdToReturn = executionContext.keepInstance
-				? activeInstanceId
-				: executionContext.requestedInstanceId;
+			// Only return instance ID if keepInstance is true (browser stays alive)
+			// If keepInstance is false, browser is closed, so don't return instance ID
+			const instanceIdToReturn = executionContext.keepInstance ? activeInstanceId : undefined;
 			if (instanceIdToReturn && typeof responsePayload === 'object') {
 				responsePayload.__playwrightInstanceId = instanceIdToReturn;
 			}
@@ -181,14 +190,27 @@ const service = {
 			callback(null, responsePayload);
 		} catch (error) {
 			console.error('Execution error:', error);
-			if (browserRecord && browserRecord.browser && browserRecord.browser.isConnected()) {
+			// Close browser if keepInstance is false (regardless of whether instance was reused or newly created)
+			if (!executionContext.keepInstance) {
+				if (browserRecord && browserRecord.browser && browserRecord.browser.isConnected()) {
+					browserRecord.browser.close().catch((closeError) => {
+						console.error('Failed to close browser after error:', closeError);
+					});
+				}
+				// Remove from Map if instance exists
+				if (activeInstanceId) {
+					browserInstances.delete(activeInstanceId);
+					console.log(`Browser instance ${activeInstanceId} closed and removed after error (keepInstance=false)`);
+				}
+			} else if (browserRecord && browserRecord.browser && browserRecord.browser.isConnected()) {
+				// Fallback: close if it was a newly created instance without keepInstance
 				if (!executionContext.requestedInstanceId || createdNewInstance) {
 					browserRecord.browser.close().catch((closeError) => {
 						console.error('Failed to close browser after error:', closeError);
 					});
 				}
 			}
-			if (createdNewInstance && activeInstanceId) {
+			if (createdNewInstance && activeInstanceId && !executionContext.keepInstance) {
 				browserInstances.delete(activeInstanceId);
 			}
 			callback(error.message || String(error), null);
