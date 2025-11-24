@@ -70,12 +70,8 @@ export class EverythingAI implements INodeType {
 		outputs: `={{(${configuredOutputs})($parameter)}}`,
 		credentials: [
 			{
-				name: 'openAIApi',
+				name: 'openAiApi',
 				required: true,
-			},
-			{
-				name: 'remoteExecutionApi',
-				required: false,
 			},
 		],
 		properties: [
@@ -246,19 +242,38 @@ export class EverythingAI implements INodeType {
 								name: 'playwright',
 								type: 'boolean',
 								default: false,
-								description: 'Enable Playwright - Browser automation library for web scraping and testing. Requires Docker container and remote execution credentials.',
+								description: 'Enable Playwright - Browser automation library for web scraping and testing. Requires Docker container and remote execution server configuration.',
+							},
+							{
+								displayName: 'Remote Execution Server URL',
+								name: 'remoteExecutionServerUrl',
+								type: 'string',
+								default: 'tcp://localhost:5004',
+								displayOptions: {
+									show: {
+										playwright: [true],
+									},
+								},
+								description: 'Remote execution server URL (e.g., tcp://localhost:5004 or tcp://192.168.1.100:5004). Required when Playwright is enabled.',
+								required: true,
+							},
+							{
+								displayName: 'Remote Execution Password',
+								name: 'remoteExecutionPassword',
+								type: 'string',
+								typeOptions: {
+									password: true,
+								},
+								default: '',
+								displayOptions: {
+									show: {
+										playwright: [true],
+									},
+								},
+								description: 'Password for authenticating with the remote execution server. Required when Playwright is enabled.',
+								required: true,
 							},
 						],
-					},
-					{
-						displayName: 'Remote Execution Credentials',
-						name: 'remoteExecutionCredential',
-						type: 'credentials',
-						typeOptions: {
-							credentialTypes: ['remoteExecutionApi'],
-						},
-						default: '',
-						description: 'Credentials for connecting to remote execution server (required when external packages like Playwright are enabled). Go to Credentials page to create a new Remote Execution API credential.',
 					},
 				],
 			},
@@ -267,11 +282,11 @@ export class EverythingAI implements INodeType {
 
 	methods = {
 		loadOptions: {
-			async getModels(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				try {
-					// Get credentials
-					const credentials = await this.getCredentials('openAIApi');
-					const apiBaseUrl = (credentials.apiBaseUrl as string) || 'https://api.openai.com/v1';
+		async getModels(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+			try {
+				// Get credentials
+				const credentials = await this.getCredentials('openAiApi');
+					const apiBaseUrl = (credentials.url as string) || 'https://api.openai.com/v1';
 					const apiKey = credentials.apiKey as string;
 
 					if (!apiKey) {
@@ -385,8 +400,9 @@ export class EverythingAI implements INodeType {
 			};
 			additionalExternalPackages?: {
 				playwright?: boolean;
+				remoteExecutionServerUrl?: string;
+				remoteExecutionPassword?: string;
 			};
-			remoteExecutionCredential?: string;
 		};
 		const reset = advanced.reset || false;
 		const enableSecurityCheck = advanced.enableSecurityCheck !== false; // Default to true
@@ -398,19 +414,23 @@ export class EverythingAI implements INodeType {
 			playwright: externalPackagesRaw.playwright === true, // Default to false for external packages
 		};
 		
-		// Get remote execution credentials if external packages are enabled
+		// Get remote execution configuration if external packages are enabled
 		let remoteCredentials: { serverUrl?: string; password?: string } | undefined;
-		if (additionalPackages.playwright && advanced.remoteExecutionCredential) {
-			try {
-				// Get credentials for remote execution
-				remoteCredentials = await this.getCredentials('remoteExecutionApi', 0);
-			} catch (error) {
-				// Credentials not found or invalid
+		if (additionalPackages.playwright) {
+			const serverUrl = externalPackagesRaw.remoteExecutionServerUrl;
+			const password = externalPackagesRaw.remoteExecutionPassword;
+			
+			if (!serverUrl || !password) {
 				throw new NodeOperationError(
 					this.getNode(),
-					'Remote Execution credentials are required when Playwright is enabled. Please configure Remote Execution API credentials in the Credentials page.',
+					'Remote Execution Server URL and Password are required when Playwright is enabled. Please configure them in Advanced Settings > Additional External Packages.',
 				);
 			}
+			
+			remoteCredentials = {
+				serverUrl,
+				password,
+			};
 		}
 
 		// Determine the model name to use
@@ -495,9 +515,9 @@ export class EverythingAI implements INodeType {
 			const inputStructures = extractInputStructures(allInputs);
 
 			// Get LLM configuration
-			const credentials = await this.getCredentials('openAIApi');
+			const credentials = await this.getCredentials('openAiApi');
 			const llmConfig = {
-				apiBaseUrl: (credentials.apiBaseUrl as string) || 'https://api.openai.com/v1',
+				apiBaseUrl: (credentials.url as string) || 'https://api.openai.com/v1',
 				apiKey: credentials.apiKey as string,
 				model,
 			};
@@ -529,7 +549,8 @@ export class EverythingAI implements INodeType {
 				enableSecurityCheck,
 				dataComplexityLevel,
 				additionalPackages,
-				remoteExecutionCredential: advanced.remoteExecutionCredential || '',
+				remoteExecutionServerUrl: externalPackagesRaw.remoteExecutionServerUrl || '',
+				remoteExecutionPassword: externalPackagesRaw.remoteExecutionPassword ? '***' : '',
 				generatedAt: new Date().toISOString(),
 			});
 			
