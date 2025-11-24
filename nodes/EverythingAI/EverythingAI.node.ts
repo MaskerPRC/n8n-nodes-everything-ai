@@ -218,6 +218,45 @@ export class EverythingAi implements INodeType {
 						default: true,
 						description: 'When enabled, the node will reject code generation requests that contain dangerous operations such as file deletion, directory deletion, system file operations, or other potentially harmful write/delete operations. Read operations are allowed.',
 					},
+					{
+						displayName: 'Additional Packages',
+						name: 'additionalPackages',
+						type: 'collection',
+						placeholder: 'Select Packages',
+						default: {},
+						description: 'Configure additional NPM packages to enable in generated code. Built-in packages (compiled locally) are enabled by default but can be disabled. External packages (require Docker) are disabled by default but can be enabled.',
+						options: [
+							{
+								displayName: 'Built-in Packages',
+								name: 'builtInPackages',
+								type: 'collection',
+								placeholder: 'Configure Built-in Packages',
+								default: {},
+								description: 'Built-in packages are compiled locally and enabled by default. You can disable them here if needed.',
+								options: [
+									{
+										displayName: 'Cheerio',
+										name: 'cheerio',
+										type: 'boolean',
+										default: true,
+										description: 'Enable/disable Cheerio - Fast, flexible, and lean implementation of core jQuery designed specifically for the server. Perfect for HTML/DOM parsing and manipulation. This is a built-in package (compiled locally) and is enabled by default.',
+									},
+								],
+							},
+							{
+								displayName: 'External Packages',
+								name: 'externalPackages',
+								type: 'collection',
+								placeholder: 'Configure External Packages',
+								default: {},
+								description: 'External packages require Docker and remote execution. They are disabled by default but can be enabled here. (No external packages available yet)',
+								options: [
+									// External packages will be added here in the future
+									// Example: Playwright, Puppeteer, etc.
+								],
+							},
+						],
+					},
 				],
 			},
 		],
@@ -338,9 +377,28 @@ export class EverythingAi implements INodeType {
 			customPrompt?: string;
 			reset?: boolean;
 			enableSecurityCheck?: boolean;
+			additionalPackages?: {
+				builtInPackages?: {
+					cheerio?: boolean;
+				};
+				externalPackages?: {
+					// External packages will be added here in the future
+					// Example: playwright?: boolean;
+				};
+			};
 		};
 		const reset = advanced.reset || false;
 		const enableSecurityCheck = advanced.enableSecurityCheck !== false; // Default to true
+		// Additional packages: built-in packages default to true, external packages default to false
+		const additionalPackagesRaw = advanced.additionalPackages || {};
+		const builtInPackagesRaw = additionalPackagesRaw.builtInPackages || {};
+		// @ts-ignore - Reserved for future external packages
+		const externalPackagesRaw = additionalPackagesRaw.externalPackages || {}; // Reserved for future external packages
+		const additionalPackages = {
+			cheerio: builtInPackagesRaw.cheerio !== false, // Default to true for built-in packages
+			// External packages will be added here in the future
+			// Example: playwright: externalPackagesRaw.playwright === true, // Default to false for external packages
+		};
 
 		// Determine the model name to use
 		// If no model is selected (empty string), use default value gpt-4o-mini
@@ -389,14 +447,16 @@ export class EverythingAi implements INodeType {
 				const savedEnableSecurityCheck = meta.enableSecurityCheck !== false; // Default to true if not present
 				const savedEditMode = meta.edit || false; // Default to false if not present
 				const savedDataComplexityLevel = (meta.dataComplexityLevel as number) || 0;
-				// If instruction changes, or input/output count changes, or security check setting changes, or edit mode changes, or data complexity level changes, need to regenerate
+				const savedAdditionalPackages = (meta.additionalPackages as { cheerio?: boolean }) || {};
+				// If instruction changes, or input/output count changes, or security check setting changes, or edit mode changes, or data complexity level changes, or additional packages change, need to regenerate
 				if (
 					savedInstruction !== instruction ||
 					meta.inputCount !== inputCount ||
 					meta.outputCount !== outputCount ||
 					savedEnableSecurityCheck !== enableSecurityCheck ||
 					savedEditMode !== editMode ||
-					savedDataComplexityLevel !== dataComplexityLevel
+					savedDataComplexityLevel !== dataComplexityLevel ||
+					JSON.stringify(savedAdditionalPackages) !== JSON.stringify(additionalPackages)
 				) {
 					isPrepared = false;
 					// Delete old files, prepare for regeneration
@@ -469,6 +529,7 @@ export class EverythingAi implements INodeType {
 				enableSecurityCheck,
 				edit: editMode,
 				dataComplexityLevel,
+				additionalPackages,
 				generatedAt: new Date().toISOString(),
 			});
 			
@@ -541,9 +602,13 @@ export class EverythingAi implements INodeType {
 				'tty': tty,
 				'vm': vm,
 				'worker_threads': worker_threads,
-				// External NPM packages
-				'cheerio': cheerio,
 			};
+			
+			// Add built-in packages based on user selection (default enabled)
+			if (additionalPackages.cheerio) {
+				modules['cheerio'] = cheerio;
+			}
+			
 			if (modules[moduleName]) {
 				return modules[moduleName];
 			}

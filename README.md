@@ -23,7 +23,9 @@ We have several exciting features planned for future releases:
 - [ ] **🌍 Multi-language Support**: Support multiple languages for natural language instructions (Chinese, English, and more). Localize the node interface and documentation to support users from different language backgrounds, making the node accessible to a global audience.
 - [ ] **🔍 AI Code Review & Validation**: Implement AI-powered code review to check generated code for potential issues, bugs, and security vulnerabilities. Add comprehensive validation to ensure generated code is safe, efficient, and follows best practices. Since code is AI-generated, add an additional layer of AI review to catch errors and improve reliability.
 - [ ] **🔌 Additional LLM Provider Support**: Support integration with other major LLM providers (Anthropic Claude, Google Gemini, local models, etc.). Allow users to choose from different LLM providers based on their needs and preferences, providing a unified interface for different LLM providers while maintaining compatibility.
-- [ ] **📦 Extended NPM Package Support**: Support more popular NPM packages in generated code. Currently supports Cheerio for HTML/DOM parsing. Planned additions include browser automation tools (Playwright, Puppeteer), additional DOM parsing libraries (jsdom), and other commonly used packages. This will expand the capabilities of AI-generated code for web scraping, browser automation, and DOM manipulation tasks.
+- [ ] **📦 Extended NPM Package Support**: Support more popular NPM packages in generated code. 
+  - **Lightweight Libraries** (e.g., DOM parsing libraries like Cheerio, jsdom): These will be compiled and bundled locally for easy use.
+  - **Heavy Libraries** (e.g., Playwright, Puppeteer): These require binary installations and will be supported through a public Docker image. The Docker image will allow users to configure and install all required libraries. Remote execution will be supported using Node.js remote package for connecting to the Docker container. This approach will expand the capabilities of AI-generated code for web scraping, browser automation, and DOM manipulation tasks.
 
 ---
 
