@@ -38,17 +38,19 @@ const service = {
 		console.log('Execute called with code length:', code.length);
 		try {
 			// Create a safe execution context with Playwright available
+			// Return playwright object with chromium property
+			const playwrightModule = { chromium };
 			const safeRequire = (moduleName) => {
 				if (moduleName === 'playwright') {
-					return { chromium };
+					return playwrightModule;
 				}
 				throw new Error(`Module '${moduleName}' is not allowed. Only 'playwright' is available.`);
 			};
 
 			// Wrap code in async function
+			// User code can use: const { chromium } = require('playwright') or const playwright = require('playwright')
 			const asyncCode = `
 				return (async function() {
-					const { chromium } = require('playwright');
 					${code}
 				})();
 			`;
