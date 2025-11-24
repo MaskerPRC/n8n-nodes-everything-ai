@@ -219,42 +219,32 @@ export class EverythingAi implements INodeType {
 						description: 'When enabled, the node will reject code generation requests that contain dangerous operations such as file deletion, directory deletion, system file operations, or other potentially harmful write/delete operations. Read operations are allowed.',
 					},
 					{
-						displayName: 'Additional Packages',
-						name: 'additionalPackages',
+						displayName: 'Additional Built-in Packages',
+						name: 'additionalBuiltInPackages',
 						type: 'collection',
-						placeholder: 'Select Packages',
+						placeholder: 'Configure Built-in Packages',
 						default: {},
-						description: 'Configure additional NPM packages to enable in generated code. Built-in packages (compiled locally) are enabled by default but can be disabled. External packages (require Docker) are disabled by default but can be enabled.',
+						description: 'Built-in packages are compiled locally and enabled by default. You can disable them here if needed.',
 						options: [
 							{
-								displayName: 'Built-in Packages',
-								name: 'builtInPackages',
-								type: 'collection',
-								placeholder: 'Configure Built-in Packages',
-								default: {},
-								description: 'Built-in packages are compiled locally and enabled by default. You can disable them here if needed.',
-								options: [
-									{
-										displayName: 'Cheerio',
-										name: 'cheerio',
-										type: 'boolean',
-										default: true,
-										description: 'Enable/disable Cheerio - Fast, flexible, and lean implementation of core jQuery designed specifically for the server. Perfect for HTML/DOM parsing and manipulation. This is a built-in package (compiled locally) and is enabled by default.',
-									},
-								],
+								displayName: 'Cheerio',
+								name: 'cheerio',
+								type: 'boolean',
+								default: true,
+								description: 'Enable/disable Cheerio - Fast, flexible, and lean implementation of core jQuery designed specifically for the server. Perfect for HTML/DOM parsing and manipulation. This is a built-in package (compiled locally) and is enabled by default.',
 							},
-							{
-								displayName: 'External Packages',
-								name: 'externalPackages',
-								type: 'collection',
-								placeholder: 'Configure External Packages',
-								default: {},
-								description: 'External packages require Docker and remote execution. They are disabled by default but can be enabled here. (No external packages available yet)',
-								options: [
-									// External packages will be added here in the future
-									// Example: Playwright, Puppeteer, etc.
-								],
-							},
+						],
+					},
+					{
+						displayName: 'Additional External Packages',
+						name: 'additionalExternalPackages',
+						type: 'collection',
+						placeholder: 'Configure External Packages',
+						default: {},
+						description: 'External packages require Docker and remote execution. They are disabled by default but can be enabled here. (No external packages available yet)',
+						options: [
+							// External packages will be added here in the future
+							// Example: Playwright, Puppeteer, etc.
 						],
 					},
 				],
@@ -377,23 +367,20 @@ export class EverythingAi implements INodeType {
 			customPrompt?: string;
 			reset?: boolean;
 			enableSecurityCheck?: boolean;
-			additionalPackages?: {
-				builtInPackages?: {
-					cheerio?: boolean;
-				};
-				externalPackages?: {
-					// External packages will be added here in the future
-					// Example: playwright?: boolean;
-				};
+			additionalBuiltInPackages?: {
+				cheerio?: boolean;
+			};
+			additionalExternalPackages?: {
+				// External packages will be added here in the future
+				// Example: playwright?: boolean;
 			};
 		};
 		const reset = advanced.reset || false;
 		const enableSecurityCheck = advanced.enableSecurityCheck !== false; // Default to true
 		// Additional packages: built-in packages default to true, external packages default to false
-		const additionalPackagesRaw = advanced.additionalPackages || {};
-		const builtInPackagesRaw = additionalPackagesRaw.builtInPackages || {};
+		const builtInPackagesRaw = advanced.additionalBuiltInPackages || {};
 		// @ts-ignore - Reserved for future external packages
-		const externalPackagesRaw = additionalPackagesRaw.externalPackages || {}; // Reserved for future external packages
+		const externalPackagesRaw = advanced.additionalExternalPackages || {}; // Reserved for future external packages
 		const additionalPackages = {
 			cheerio: builtInPackagesRaw.cheerio !== false, // Default to true for built-in packages
 			// External packages will be added here in the future
