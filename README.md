@@ -80,6 +80,10 @@ This node requires OpenAI API credentials (or compatible API):
 - **Custom Prompt Template**: Override the default system prompt template
   - Use `{{instruction}}`, `{{inputCount}}`, `{{outputCount}}` as placeholders
 - **Force Reset Node**: Force reset and regenerate code (normally auto-regenerates when requirements change)
+- **Playwright Session Controls** (visible when Playwright is enabled):
+  - **Keep Browser Instance**: When enabled, the Playwright browser session stays alive after execution so downstream nodes can reuse it.
+  - **Browser Instance ID**: Use an existing browser instance ID (returned from a previous node) to reuse the same browser session.
+  - When an instance is kept alive, the node adds `__playwrightInstanceId` to every output item so it can be passed to downstream nodes.
 
 ## Usage
 

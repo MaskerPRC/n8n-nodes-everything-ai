@@ -1,4 +1,5 @@
 import type {
+	IDataObject,
 	IExecuteFunctions,
 	ILoadOptionsFunctions,
 	INodeExecutionData,
@@ -248,13 +249,13 @@ export class EverythingAI implements INodeType {
 								displayName: 'Remote Execution Server URL',
 								name: 'remoteExecutionServerUrl',
 								type: 'string',
-								default: 'tcp://172.18.0.1:5004',
+								default: 'tcp://172.18.0.REPLACE_ME:5004',
 								displayOptions: {
 									show: {
 										playwright: [true],
 									},
 								},
-								description: 'Remote execution server URL. Default: tcp://172.18.0.1:5004 (for Docker network). For localhost, use tcp://localhost:5004. For remote server, use tcp://IP:PORT.',
+								description: 'Remote execution server URL. Default: tcp://172.18.0.REPLACE_ME:5004 (replace "REPLACE_ME" with your Docker network IP, e.g., 1). For localhost, use tcp://localhost:5004. For remote server, use tcp://IP:PORT.',
 								required: true,
 							},
 							{
@@ -264,14 +265,40 @@ export class EverythingAI implements INodeType {
 								typeOptions: {
 									password: true,
 								},
+								default: 'default-password-change-me',
+								displayOptions: {
+									show: {
+										playwright: [true],
+									},
+								},
+								description: 'Password for authenticating with the remote execution server. Default: default-password-change-me (change this in production).',
+								required: true,
+							},
+							{
+								displayName: 'Keep Browser Instance',
+								name: 'playwrightKeepBrowserInstance',
+								type: 'boolean',
+								default: false,
+								displayOptions: {
+									show: {
+										playwright: [true],
+									},
+								},
+								description:
+									'When enabled, the Playwright browser instance stays alive after execution and can be reused by downstream nodes. Disable to close the browser after each execution.',
+							},
+							{
+								displayName: 'Browser Instance ID',
+								name: 'playwrightInstanceId',
+								type: 'string',
 								default: '',
 								displayOptions: {
 									show: {
 										playwright: [true],
 									},
 								},
-								description: 'Password for authenticating with the remote execution server. Required when Playwright is enabled.',
-								required: true,
+								description:
+									'Use an existing Playwright browser instance ID returned from a previous node to reuse the same browser/session.',
 							},
 						],
 					},
@@ -382,7 +409,23 @@ export class EverythingAI implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		try {
 			const workflowId = this.getWorkflow().id || 'default';
+			const workflowName = this.getWorkflow().name || '';
 			const nodeId = this.getNode().id;
+			const nodeName = this.getNode().name || this.getNode().type;
+
+			let executionId = '';
+			try {
+				const workflowData = this.getWorkflowDataProxy(0) as IDataObject;
+				const execution = (workflowData?.$execution ?? {}) as IDataObject;
+				if (execution?.id && typeof execution.id === 'string') {
+					executionId = execution.id;
+				}
+			} catch {
+				// Ignore errors and fall back to generated ID
+			}
+			if (!executionId) {
+				executionId = `${workflowId}-${Date.now()}`;
+			}
 
 		// Get configuration parameters
 		const inputCount = this.getNodeParameter('numberInputs', 0) as number;
@@ -402,6 +445,8 @@ export class EverythingAI implements INodeType {
 				playwright?: boolean;
 				remoteExecutionServerUrl?: string;
 				remoteExecutionPassword?: string;
+				playwrightKeepBrowserInstance?: boolean;
+				playwrightInstanceId?: string;
 			};
 		};
 		const reset = advanced.reset || false;
@@ -415,10 +460,21 @@ export class EverythingAI implements INodeType {
 		};
 		
 		// Get remote execution configuration if external packages are enabled
-		let remoteCredentials: { serverUrl?: string; password?: string } | undefined;
+		let remoteCredentials: {
+			serverUrl?: string;
+			password?: string;
+			keepBrowserInstance?: boolean;
+			browserInstanceId?: string;
+		} | undefined;
 		if (additionalPackages.playwright) {
 			const serverUrl = externalPackagesRaw.remoteExecutionServerUrl;
 			const password = externalPackagesRaw.remoteExecutionPassword;
+			const keepBrowserInstance =
+				externalPackagesRaw.playwrightKeepBrowserInstance === true;
+			const browserInstanceId =
+				typeof externalPackagesRaw.playwrightInstanceId === 'string'
+					? externalPackagesRaw.playwrightInstanceId.trim()
+					: '';
 			
 			if (!serverUrl || !password) {
 				throw new NodeOperationError(
@@ -430,6 +486,8 @@ export class EverythingAI implements INodeType {
 			remoteCredentials = {
 				serverUrl,
 				password,
+				keepBrowserInstance,
+				browserInstanceId,
 			};
 		}
 
@@ -741,7 +799,20 @@ export class EverythingAI implements INodeType {
 				const password = remoteCredentials.password || '';
 				
 				// Execute code remotely via RPC
-				result = await executeRemote(serverUrl, password, functionBody, allInputs);
+				const metadata = {
+					workflowId,
+					workflowName,
+					executionId,
+					nodeId,
+					nodeName,
+					keepInstance: remoteCredentials.keepBrowserInstance === true,
+					browserInstanceId:
+						remoteCredentials.browserInstanceId && remoteCredentials.browserInstanceId !== ''
+							? remoteCredentials.browserInstanceId
+							: undefined,
+				};
+				
+				result = await executeRemote(serverUrl, password, functionBody, allInputs, metadata);
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : String(error);
 				throw new NodeOperationError(
@@ -820,11 +891,19 @@ export class EverythingAI implements INodeType {
 			);
 		}
 
+		const remoteResult = result as Record<string, INodeExecutionData[]> & {
+			__playwrightInstanceId?: string;
+		};
+		const playwrightInstanceId = remoteResult.__playwrightInstanceId;
+		if (playwrightInstanceId) {
+			delete remoteResult.__playwrightInstanceId;
+		}
+
 		// Organize data by output port
 		const outputs: INodeExecutionData[][] = [];
 		for (let i = 0; i < outputCount; i++) {
 			const outputLetter = String.fromCharCode(65 + i); // A, B, C, ...
-			let outputData = result[outputLetter] || [];
+			let outputData = remoteResult[outputLetter] || [];
 			
 			// Ensure output is an array
 			if (!Array.isArray(outputData)) {
@@ -838,6 +917,21 @@ export class EverythingAI implements INodeType {
 			// If generated code returns empty array, it means this path should not execute (this is correct behavior)
 			// Only when code explicitly needs this output port to have data but forgot to add it, should we supplement
 			// But to maintain code generation consistency, we let LLM handle it itself, no automatic supplementation here
+
+			if (playwrightInstanceId) {
+				outputData = outputData.map((item) => {
+					const newItem: INodeExecutionData = {
+						...item,
+					};
+					const jsonData =
+						typeof newItem.json === 'object' && newItem.json !== null
+							? newItem.json
+							: { data: newItem.json };
+					jsonData.__playwrightInstanceId = playwrightInstanceId;
+					newItem.json = jsonData;
+					return newItem;
+				});
+			}
 
 			outputs.push(outputData);
 		}

@@ -8,37 +8,17 @@
 export const PLAYWRIGHT_DOCUMENTATION = `
 ## Playwright Browser Automation
 
-Playwright is available for browser automation tasks. When using Playwright in your generated code, the code will be executed on a remote Docker container.
+Playwright is available for browser automation tasks. The remote execution server launches and manages the browser instance for you:
 
-### Basic Usage
+- A Playwright \`browser\` object is injected automatically. **Never call \`chromium.launch()\` or \`browser.close()\`.**
+- Create your own contexts/pages inside the code and close them when finished.
+- A \`playwrightSession\` object is available (with \`instanceId\`, \`workflowId\`, \`executionId\`, etc.) so you can understand which browser instance you're using.
+
+### URL Protocol Handling (MANDATORY)
+
+Always ensure URLs include a protocol before calling \`page.goto\`. If missing, prepend \`https://\`.
 
 \`\`\`javascript
-const { chromium, firefox, webkit } = require('playwright');
-
-// Launch browser
-const browser = await chromium.launch({ headless: true });
-
-// Create a new page
-const page = await browser.newPage();
-
-// Navigate to a URL
-await page.goto('https://example.com');
-
-// Get page title
-const title = await page.title();
-
-// Take a screenshot
-await page.screenshot({ path: 'screenshot.png' });
-
-// Close browser
-await browser.close();
-\`\`\`
-
-### Common Operations
-
-**1. Navigate and Get Content:**
-\`\`\`javascript
-// Helper function to ensure URL has protocol
 function ensureUrlProtocol(url) {
   if (!url) return url;
   url = url.trim();
@@ -48,147 +28,88 @@ function ensureUrlProtocol(url) {
   return url;
 }
 
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage();
+const rawUrl = inputs[0]?.[0]?.json?.url || 'example.com';
+const url = ensureUrlProtocol(rawUrl);
+await page.goto(url);
+\`\`\`
 
-// Always check URL protocol before using
-const url = ensureUrlProtocol('example.com'); // Will become 'https://example.com'
+### Common Operations
+
+**1. Navigate and Get Content**
+\`\`\`javascript
+const context = await browser.newContext();
+const page = await context.newPage();
+
+const url = ensureUrlProtocol('example.com');
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+const html = await page.content();
+const title = await page.title();
+
+await page.close();
+await context.close();
+\`\`\`
+
+**2. Click / Fill / Extract**
+\`\`\`javascript
+await page.click('text=Submit');
+await page.fill('input[name="email"]', 'user@example.com');
+
+const links = await page.$$eval('a', elements =>
+  elements.map(el => ({ text: el.textContent?.trim(), href: el.href }))
+);
+\`\`\`
+
+**3. Screenshots & Waiting**
+\`\`\`javascript
+await page.waitForSelector('.content');
+await page.screenshot({ path: 'fullpage.png', fullPage: true });
+\`\`\`
+
+### Returning Data to n8n
+
+Always return data in the correct n8n structure. Include the Playwright instance ID (if available) so downstream nodes can reuse the browser.
+
+\`\`\`javascript
+const outputs = { A: [] };
+
+const context = await browser.newContext();
+const page = await context.newPage();
+
+const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
 await page.goto(url);
 
-const content = await page.content(); // Get full HTML
-const text = await page.textContent('body'); // Get text content
-await browser.close();
-\`\`\`
-
-**2. Click Elements:**
-\`\`\`javascript
-// Click by text
-await page.click('text=Submit');
-
-// Click by selector
-await page.click('button#submit');
-
-// Click by role
-await page.getByRole('button', { name: 'Submit' }).click();
-\`\`\`
-
-**3. Fill Forms:**
-\`\`\`javascript
-await page.fill('input[name="email"]', 'user@example.com');
-await page.fill('input[name="password"]', 'password123');
-await page.click('button[type="submit"]');
-\`\`\`
-
-**4. Extract Data:**
-\`\`\`javascript
-// Get text from element
-const heading = await page.textContent('h1');
-
-// Get attribute
-const href = await page.getAttribute('a', 'href');
-
-// Get multiple elements
-const links = await page.$$eval('a', elements => 
-  elements.map(el => ({ text: el.textContent, href: el.href }))
-);
-\`\`\`
-
-**5. Wait for Elements:**
-\`\`\`javascript
-// Wait for selector
-await page.waitForSelector('.content');
-
-// Wait for text
-await page.waitForSelector('text=Loading complete');
-
-// Wait for navigation
-await page.waitForNavigation();
-\`\`\`
-
-**6. Screenshots:**
-\`\`\`javascript
-// Full page screenshot
-await page.screenshot({ path: 'fullpage.png', fullPage: true });
-
-// Element screenshot
-const element = await page.$('.content');
-await element.screenshot({ path: 'element.png' });
-\`\`\`
-
-### Integration with n8n Data Format
-
-When using Playwright in n8n, you must return data in the correct format:
-
-\`\`\`javascript
-const { chromium } = require('playwright');
-const outputs = { 'A': [] };
-
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage();
-await page.goto('https://example.com');
-
-// Extract data
 const title = await page.title();
-const links = await page.$$eval('a', elements => 
-  elements.map(el => ({ text: el.textContent, href: el.href }))
-);
 
-await browser.close();
+await page.close();
+await context.close();
 
-// Return in n8n format
-outputs['A'].push({
+outputs.A.push({
   json: {
+    url,
     title,
-    links,
-    linkCount: links.length
+    instanceId: playwrightSession.instanceId || null,
   },
-  binary: {}
+  binary: {},
 });
 
 return outputs;
 \`\`\`
 
-### URL Protocol Handling (IMPORTANT!)
+### Important Rules
 
-**Always check and add protocol to URLs before using them with Playwright:**
-
-When receiving URLs from user input or data, you MUST check if they have a protocol (http:// or https://). If not, automatically add https://.
-
-\`\`\`javascript
-// Helper function to ensure URL has protocol
-function ensureUrlProtocol(url) {
-  if (!url) return url;
-  url = url.trim();
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    return 'https://' + url;
-  }
-  return url;
-}
-
-// Usage example
-const urlFromInput = inputs[0]?.[0]?.json?.url || 'example.com';
-const url = ensureUrlProtocol(urlFromInput); // Will become 'https://example.com'
-await page.goto(url);
-\`\`\`
-
-**Always use this pattern when working with URLs from user input or data.**
-
-### Important Notes
-
-1. **URL Protocol**: Always check and add https:// protocol if URL doesn't have http:// or https://
-2. **Always close the browser**: Use \`await browser.close()\` to free resources
-3. **Use headless mode**: Set \`headless: true\` for server environments
-4. **Handle errors**: Wrap browser operations in try-catch blocks
-5. **Return n8n format**: Always return data in \`{ json: {...}, binary: {...} }\` format
-6. **Remote execution**: Playwright code runs on a remote Docker container, so file paths are relative to the container
-7. **Async/await required**: All Playwright operations are async and must use await
+1. **Browser lifecycle**: Use the injected \`browser\`. Do not launch or close it yourself.
+2. **Close what you open**: Always close pages and contexts to avoid leaks.
+3. **URL safety**: Enforce URL protocols with \`ensureUrlProtocol\`.
+4. **Return format**: The result must be an object whose keys are output letters (A, B, C...) mapped to arrays of items.
+5. **Session reuse**: If \`playwrightSession.instanceId\` is set, include it in your output. Downstream nodes can feed it back in to reuse the same browser.
+6. **Remote execution**: Code runs inside a Docker container; file paths are relative to that container.
 
 ### Example: Scrape a Website
 
 \`\`\`javascript
-const { chromium } = require('playwright');
+const outputs = { A: [] };
 
-// Helper function to ensure URL has protocol
 function ensureUrlProtocol(url) {
   if (!url) return url;
   url = url.trim();
@@ -198,44 +119,29 @@ function ensureUrlProtocol(url) {
   return url;
 }
 
-const outputs = { 'A': [] };
+const context = await browser.newContext();
+const page = await context.newPage();
 
-try {
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-  
-  // Get URL from input or use default, and ensure it has protocol
-  const rawUrl = inputs[0]?.[0]?.json?.url || 'example.com';
-  const url = ensureUrlProtocol(rawUrl);
-  await page.goto(url);
-  
-  // Extract data
-  const data = {
-    url,
-    title: await page.title(),
-    headings: await page.$$eval('h1, h2, h3', elements => 
-      elements.map(el => el.textContent)
-    ),
-    links: await page.$$eval('a', elements => 
-      elements.map(el => ({ text: el.textContent, href: el.href }))
-    )
-  };
-  
-  await browser.close();
-  
-  // Return in n8n format
-  outputs['A'].push({
-    json: data,
-    binary: {}
-  });
-} catch (error) {
-  // Handle errors
-  outputs['A'].push({
-    json: { error: error.message },
-    binary: {}
-  });
-}
+const rawUrl = inputs[0]?.[0]?.json?.url || 'example.com';
+const url = ensureUrlProtocol(rawUrl);
+await page.goto(url);
 
+const data = {
+  url,
+  title: await page.title(),
+  headings: await page.$$eval('h1, h2, h3', elements =>
+    elements.map(el => el.textContent?.trim()).filter(Boolean)
+  ),
+  links: await page.$$eval('a', elements =>
+    elements.map(el => ({ text: el.textContent?.trim(), href: el.href }))
+  ),
+  instanceId: playwrightSession.instanceId || null,
+};
+
+await page.close();
+await context.close();
+
+outputs.A.push({ json: data, binary: {} });
 return outputs;
 \`\`\`
 `;

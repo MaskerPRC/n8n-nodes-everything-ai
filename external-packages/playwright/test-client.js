@@ -13,10 +13,22 @@ const net = require('net');
 const SERVER_URL = process.env.SERVER_URL || 'tcp://localhost:5004';
 const PASSWORD = process.env.PASSWORD || 'test-password-123';
 
+function buildMetadata(label, options = {}) {
+	return {
+		workflowId: 'test-workflow',
+		workflowName: 'Playwright Test Workflow',
+		executionId: `${label}-${Date.now()}`,
+		nodeId: `node-${label}`,
+		nodeName: `Test ${label}`,
+		keepInstance: options.keepInstance === true,
+		browserInstanceId: options.browserInstanceId,
+	};
+}
+
 /**
  * Execute code remotely using dnode RPC (same as N8N node)
  */
-function executeRemote(serverUrl, password, code, inputs) {
+function executeRemote(serverUrl, password, code, inputs, metadata = {}) {
 	return new Promise((resolve, reject) => {
 		// Parse server URL
 		const urlMatch = serverUrl.match(/^tcp:\/\/([^:]+):(\d+)$/);
@@ -69,7 +81,7 @@ function executeRemote(serverUrl, password, code, inputs) {
 				reject(new Error('Execution timeout after 60 seconds'));
 			}, 60000);
 
-			remote.execute(code, inputs, (error, result) => {
+			remote.execute(code, inputs, metadata, (error, result) => {
 				clearTimeout(executeTimeout);
 				stream.end();
 				if (error) {
@@ -138,7 +150,13 @@ async function test1() {
 
 	try {
 		const startTime = Date.now();
-		const result = await executeRemote(SERVER_URL, PASSWORD, code, []);
+		const result = await executeRemote(
+			SERVER_URL,
+			PASSWORD,
+			code,
+			[],
+			buildMetadata('test1'),
+		);
 		const duration = Date.now() - startTime;
 		console.log(`Test 1 Result (took ${duration}ms):`, JSON.stringify(result, null, 2));
 	} catch (error) {
@@ -152,22 +170,39 @@ async function test1() {
 async function test2() {
 	console.log('\n=== Test 2: Get page title (simple) ===');
 	const code = `
-		const browser = await chromium.launch({ headless: true });
+		function ensureUrlProtocol(url) {
+			if (!url) return url;
+			url = url.trim();
+			if (!url.startsWith('http://') && !url.startsWith('https://')) {
+				return 'https://' + url;
+			}
+			return url;
+		}
+
+		const context = await browser.newContext();
 		try {
-			const page = await browser.newPage();
-			await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 10000 });
+			const page = await context.newPage();
+			const url = ensureUrlProtocol('example.com');
+			await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 10000 });
 			const title = await page.title();
-			await browser.close();
-			return { title, success: true };
+			await page.close();
+			return { title, success: true, instanceId: playwrightSession.instanceId || null };
 		} catch (error) {
-			await browser.close();
 			throw error;
+		} finally {
+			await context.close();
 		}
 	`;
 
 	try {
 		const startTime = Date.now();
-		const result = await executeRemote(SERVER_URL, PASSWORD, code, []);
+		const result = await executeRemote(
+			SERVER_URL,
+			PASSWORD,
+			code,
+			[],
+			buildMetadata('test2'),
+		);
 		const duration = Date.now() - startTime;
 		console.log(`Test 2 Result (took ${duration}ms):`, JSON.stringify(result, null, 2));
 	} catch (error) {
@@ -197,7 +232,13 @@ async function test3() {
 
 	try {
 		const startTime = Date.now();
-		const result = await executeRemote(SERVER_URL, PASSWORD, code, []);
+		const result = await executeRemote(
+			SERVER_URL,
+			PASSWORD,
+			code,
+			[],
+			buildMetadata('test3'),
+		);
 		const duration = Date.now() - startTime;
 		console.log(`Test 3 Result (took ${duration}ms):`, JSON.stringify(result, null, 2));
 	} catch (error) {

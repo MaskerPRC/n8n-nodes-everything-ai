@@ -151,30 +151,35 @@ Output data structure:
        - Example: \`const $ = require('cheerio').load(htmlString); const title = $('title').text();\`
        - Use cheerio to parse HTML, extract data, manipulate DOM elements, etc.
      ` : ''}
-     ${additionalPackages?.playwright ? `
-     - **Browser Automation**: \`playwright\` - Modern browser automation library for web scraping, testing, and automation. Supports Chromium, Firefox, and WebKit.
-       - **Important**: Playwright code will be executed on a remote Docker container, so all browser automation happens remotely.
-       - **CRITICAL - URL Protocol Handling**: When receiving URLs from user input or data, you MUST check if they have a protocol (http:// or https://). If not, automatically add https://. Example: \`function ensureUrlProtocol(url) { if (!url.startsWith('http://') && !url.startsWith('https://')) return 'https://' + url; return url; }\` - Always use this before \`page.goto(url)\`
-       - **Basic usage**: \`const { chromium } = require('playwright'); const browser = await chromium.launch({ headless: true }); const page = await browser.newPage(); const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com'); await page.goto(url); const title = await page.title(); await browser.close();\`
-       - **Common operations**:
-         - Navigate: \`await page.goto(url)\` - Always ensure URL has protocol first!
-         - Click: \`await page.click('selector')\` or \`await page.getByRole('button', { name: 'Submit' }).click()\`
-         - Fill form: \`await page.fill('input[name="email"]', 'value')\`
-         - Extract text: \`await page.textContent('selector')\`
-         - Extract attributes: \`await page.getAttribute('a', 'href')\`
-         - Extract multiple elements: \`await page.$$eval('a', elements => elements.map(el => el.href))\`
-         - Screenshot: \`await page.screenshot({ path: 'screenshot.png', fullPage: true })\`
-         - Wait: \`await page.waitForSelector('.content')\`
-       - **Always close browser**: Use \`await browser.close()\` to free resources
-       - **Use headless mode**: Set \`headless: true\` for server environments
-       - **Return n8n format**: Always return data in \`{ json: {...}, binary: {...} }\` format
-       - Use playwright to automate browsers, scrape dynamic content, take screenshots, fill forms, etc.
-     ` : ''}
+    ${additionalPackages?.playwright ? `
+    - **Browser Automation**: \`playwright\` - Modern browser automation library for web scraping, testing, and automation.
+      - **Browser lifecycle is managed for you**: A \`browser\` object is injected. **Do NOT call \`chromium.launch()\` or \`browser.close()\`.**
+      - **Create/close contexts & pages**: Always create a context/page (\`const context = await browser.newContext(); const page = await context.newPage();\`) and close them when finished (\`await page.close(); await context.close();\`).
+      - **Session metadata**: A \`playwrightSession\` object is available (contains \`instanceId\`, \`workflowId\`, \`executionId\`, etc.). Include \`playwrightSession.instanceId\` in your output if it's present.
+      - **CRITICAL - URL Protocol Handling**: For any URL coming from inputs or user data, ensure it includes \`http://\` or \`https://\`. Example helper: \`function ensureUrlProtocol(url) { if (!url.startsWith('http://') && !url.startsWith('https://')) return 'https://' + url; return url; }\` — always run \`page.goto(ensureUrlProtocol(url))\`.
+      - **Typical workflow**:
+        \`\`\`javascript
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
+        await page.goto(url);
+        const title = await page.title();
+        await page.close();
+        await context.close();
+        \`\`\`
+      - **Common operations**:
+        - Navigate: \`await page.goto(url)\` (after protocol check)
+        - Click/Fill: \`await page.click('selector')\`, \`await page.fill('input[name="email"]', 'value')\`
+        - Extract data: \`await page.textContent('selector')\`, \`await page.$$eval('a', els => ...)\`
+        - Wait: \`await page.waitForSelector('.content')\`
+        - Screenshots: \`await page.screenshot({ path: 'screenshot.png', fullPage: true })\`
+      - **Return n8n format**: Always return an object such as \`{ A: [ { json: { ... } } ] }\`. Include the instance ID if available so downstream nodes can reuse the browser.
+    ` : ''}
    - Examples: 
      - \`const fs = require('fs');\` - File system operations
      - \`const https = require('https');\` - HTTPS requests
      ${additionalPackages?.cheerio ? `- \`const cheerio = require('cheerio');\` - HTML/DOM parsing\n` : ''}
-     ${additionalPackages?.playwright ? `- \`const { chromium } = require('playwright');\` - Browser automation\n` : ''}
+    ${additionalPackages?.playwright ? `- Use the injected \`browser\` instance for Playwright automation (no need to call \`chromium.launch()\`)\n` : ''}
    - You can use these modules to make HTTP requests, read/write files, parse HTML, encrypt data, parse URLs${additionalPackages?.playwright ? ', automate browsers' : ''}, etc.
 
 3. **IMPORTANT: Async Operations (HTTP requests, file I/O, etc.)**
@@ -335,9 +340,9 @@ return (async () => {
 ### Example 3.2: Using Playwright for Browser Automation
 If user instruction requires browser automation, web scraping with JavaScript rendering, or dynamic content extraction, you can use \`playwright\`:
 \`\`\`javascript
-const { chromium } = require('playwright');
+const outputs = { 'A': [] };
+const $input = inputs[0] || [];
 
-// Helper function to ensure URL has protocol (http:// or https://)
 function ensureUrlProtocol(url) {
   if (!url) return url;
   url = url.trim();
@@ -347,33 +352,22 @@ function ensureUrlProtocol(url) {
   return url;
 }
 
-const outputs = { 'A': [] };
-const $input = inputs[0] || [];
-
 // Use async/await to automate browser
 if ($input.length > 0) {
+  const context = await browser.newContext();
   try {
-    // Launch browser in headless mode
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    const page = await context.newPage();
     
     // Navigate to URL (example: get URL from input data)
-    // IMPORTANT: Always check and add protocol to URLs
     const rawUrl = $input[0].json.url || 'example.com';
-    const url = ensureUrlProtocol(rawUrl); // Will add https:// if missing
-    await page.goto(url);
+    const url = ensureUrlProtocol(rawUrl);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
     
     // Extract data from page
     const title = await page.title();
     const links = await page.$$eval('a', elements => 
-      elements.map(el => ({ text: el.textContent, href: el.href }))
+      elements.map(el => ({ text: el.textContent?.trim(), href: el.href }))
     );
-    
-    // Take screenshot (optional)
-    // await page.screenshot({ path: 'screenshot.png', fullPage: true });
-    
-    // Close browser
-    await browser.close();
     
     // Create output item with scraped data
     outputs['A'].push({
@@ -381,16 +375,21 @@ if ($input.length > 0) {
         url,
         title,
         links,
-        linkCount: links.length
+        linkCount: links.length,
+        instanceId: playwrightSession.instanceId || null,
       },
       binary: {}
     });
+    
+    await page.close();
   } catch (error) {
     // Handle errors
     outputs['A'].push({
       json: { error: error.message },
       binary: {}
     });
+  } finally {
+    await context.close();
   }
 }
 
@@ -398,12 +397,12 @@ return outputs;
 \`\`\`
 
 **Important Notes for Playwright**:
-- **URL Protocol**: ALWAYS check and add https:// protocol if URL doesn't have http:// or https:// before using with page.goto()
-- **Always close browser**: Use \`await browser.close()\` to free resources
-- **Use headless mode**: Set \`headless: true\` for server environments
-- **Handle errors**: Wrap browser operations in try-catch blocks
-- **Return n8n format**: Always return data in \`{ json: {...}, binary: {...} }\` format
-- **Remote execution**: Playwright code runs on a remote Docker container
+- **Browser lifecycle**: A \`browser\` instance is injected. **Do NOT call \`chromium.launch()\` or \`browser.close()\`.**
+- **Close what you open**: Always close pages and contexts you create to avoid leaks.
+- **URL Protocol**: Always ensure URLs include http:// or https:// before calling \`page.goto()\`.
+- **Instance reuse**: Include \`playwrightSession.instanceId\` in your output (if present) so downstream nodes can reuse the same browser.
+- **Return n8n format**: Always return data in \`{ json: {...}, binary: {...} }\` format.
+- **Remote execution**: Playwright code runs on a remote Docker container.
 
 ### Example 3.3: Using Cheerio for HTML/DOM Parsing
 If user instruction requires parsing HTML or manipulating DOM, you can use \`cheerio\`:

@@ -10,6 +10,16 @@ const net = require('net');
 const Module = require('module');
 const originalLoad = Module._load;
 
+interface PlaywrightExecutionMetadata {
+	workflowId?: string;
+	workflowName?: string;
+	executionId?: string;
+	nodeId?: string;
+	nodeName?: string;
+	keepInstance?: boolean;
+	browserInstanceId?: string;
+}
+
 // 简单的 weak mock：返回一个函数，返回对象本身（不实现真正的弱引用）
 const weakMock = function(obj: unknown) {
 	return {
@@ -51,6 +61,7 @@ export async function executeRemote(
 	password: string,
 	code: string,
 	inputs: INodeExecutionData[][],
+	metadata?: PlaywrightExecutionMetadata,
 ): Promise<Record<string, INodeExecutionData[]>> {
 	return new Promise((resolve, reject) => {
 		// Parse server URL
@@ -82,10 +93,15 @@ export async function executeRemote(
 		
 		// Handle remote method calls
 		d.on('remote', (remote: {
-			execute: (code: string, inputs: INodeExecutionData[][], callback: (error: unknown, result: unknown) => void) => void;
+			execute: (
+				code: string,
+				inputs: INodeExecutionData[][],
+				metadata: PlaywrightExecutionMetadata,
+				callback: (error: unknown, result: unknown) => void,
+			) => void;
 		}) => {
 			// Call remote execute method
-			remote.execute(code, inputs, (error: unknown, result: unknown) => {
+			remote.execute(code, inputs, metadata || {}, (error: unknown, result: unknown) => {
 				stream.end();
 				if (error) {
 					reject(new Error(`Remote execution failed: ${error}`));

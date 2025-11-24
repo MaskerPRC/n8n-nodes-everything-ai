@@ -15,6 +15,7 @@
 
 const dnode = require('dnode');
 const net = require('net');
+const { randomUUID } = require('crypto');
 const { chromium } = require('playwright');
 
 // Configuration
@@ -22,7 +23,22 @@ const PORT = process.env.PORT || 5004;
 const PASSWORD = process.env.PASSWORD || 'default-password-change-me';
 
 // Store active browser instances (for cleanup on shutdown)
-const browsers = new Map();
+const browserInstances = new Map();
+
+function cleanupBrowserInstance(instanceId, reason) {
+	const instance = browserInstances.get(instanceId);
+	if (instance) {
+		browserInstances.delete(instanceId);
+		if (instance.browser && instance.browser.isConnected()) {
+			instance.browser.close().catch((error) => {
+				console.error(`Failed to close browser for instance ${instanceId}:`, error);
+			});
+		}
+	}
+	if (reason) {
+		console.log(`Browser instance ${instanceId} removed: ${reason}`);
+	}
+}
 
 /**
  * Remote execution service
@@ -34,9 +50,72 @@ const service = {
 	 * @param {Array} inputs - Input data from n8n
 	 * @param {Function} callback - Callback function
 	 */
-	async execute(code, inputs, callback) {
+	async execute(code, inputs, metadataOrCallback, maybeCallback) {
+		let metadata = {};
+		let callback = maybeCallback;
+		if (typeof metadataOrCallback === 'function') {
+			callback = metadataOrCallback;
+		} else if (metadataOrCallback && typeof metadataOrCallback === 'object') {
+			metadata = metadataOrCallback;
+		}
+
+		if (typeof callback !== 'function') {
+			throw new Error('Callback function is required');
+		}
+
 		console.log('Execute called with code length:', code.length);
 		try {
+			const executionContext = {
+				workflowId: metadata.workflowId || 'unknown-workflow',
+				workflowName: metadata.workflowName || '',
+				executionId: metadata.executionId || randomUUID(),
+				nodeId: metadata.nodeId || '',
+				nodeName: metadata.nodeName || '',
+				keepInstance: metadata.keepInstance === true,
+				requestedInstanceId:
+					typeof metadata.browserInstanceId === 'string' && metadata.browserInstanceId.trim() !== ''
+						? metadata.browserInstanceId.trim()
+						: undefined,
+			};
+
+			let activeInstanceId = executionContext.requestedInstanceId;
+			let browserRecord;
+			let createdNewInstance = false;
+			let shouldCloseAfterExecution = false;
+
+			if (activeInstanceId) {
+				browserRecord = browserInstances.get(activeInstanceId);
+				if (!browserRecord || !browserRecord.browser?.isConnected()) {
+					if (browserRecord) {
+						browserInstances.delete(activeInstanceId);
+					}
+					callback(`Browser instance '${activeInstanceId}' not found or already closed`, null);
+					return;
+				}
+			} else {
+				console.log('Launching new Playwright browser instance...');
+				const browser = await chromium.launch({ headless: true });
+				browserRecord = {
+					browser,
+					createdAt: Date.now(),
+					workflowId: executionContext.workflowId,
+					executionId: executionContext.executionId,
+				};
+				createdNewInstance = true;
+				if (executionContext.keepInstance) {
+					activeInstanceId = randomUUID();
+					browserInstances.set(activeInstanceId, browserRecord);
+					console.log(`Created persistent browser instance ${activeInstanceId}`);
+				} else {
+					shouldCloseAfterExecution = true;
+				}
+			}
+
+			if (!browserRecord || !browserRecord.browser) {
+				callback('Failed to obtain browser instance', null);
+				return;
+			}
+
 			// Create a safe execution context with Playwright available
 			// Return playwright object with chromium property
 			const playwrightModule = { chromium };
@@ -48,22 +127,70 @@ const service = {
 			};
 
 			// Wrap code in async function
-			// User code can use: const { chromium } = require('playwright') or const playwright = require('playwright')
+			// A Playwright browser instance is injected via environment.browser
 			const asyncCode = `
 				return (async function() {
+					const browser = environment.browser;
+					const playwrightSession = environment.session;
 					${code}
 				})();
 			`;
 
 			// Execute code in isolated context
 			console.log('Executing code...');
-			const func = new Function('require', 'inputs', asyncCode);
-			const result = await func(safeRequire, inputs);
+			const func = new Function('require', 'inputs', 'environment', asyncCode);
+			const environment = {
+				browser: browserRecord.browser,
+				session: {
+					instanceId: activeInstanceId,
+					workflowId: executionContext.workflowId,
+					workflowName: executionContext.workflowName,
+					executionId: executionContext.executionId,
+					nodeId: executionContext.nodeId,
+					nodeName: executionContext.nodeName,
+					keepInstance: executionContext.keepInstance,
+					reused: Boolean(executionContext.requestedInstanceId),
+				},
+			};
+			const result = await func(safeRequire, inputs, environment);
 			console.log('Code executed successfully, result:', typeof result);
 
-			callback(null, result);
+			if (shouldCloseAfterExecution) {
+				await browserRecord.browser.close().catch((error) => {
+					console.error('Failed to close browser after execution:', error);
+				});
+			}
+
+			if (!executionContext.keepInstance && createdNewInstance && activeInstanceId) {
+				browserInstances.delete(activeInstanceId);
+				activeInstanceId = undefined;
+			}
+
+			let responsePayload = result;
+			if (!responsePayload || typeof responsePayload !== 'object') {
+				responsePayload = { output1: [], __rawResult: responsePayload };
+			}
+
+			const instanceIdToReturn = executionContext.keepInstance
+				? activeInstanceId
+				: executionContext.requestedInstanceId;
+			if (instanceIdToReturn && typeof responsePayload === 'object') {
+				responsePayload.__playwrightInstanceId = instanceIdToReturn;
+			}
+
+			callback(null, responsePayload);
 		} catch (error) {
 			console.error('Execution error:', error);
+			if (browserRecord && browserRecord.browser && browserRecord.browser.isConnected()) {
+				if (!executionContext.requestedInstanceId || createdNewInstance) {
+					browserRecord.browser.close().catch((closeError) => {
+						console.error('Failed to close browser after error:', closeError);
+					});
+				}
+			}
+			if (createdNewInstance && activeInstanceId) {
+				browserInstances.delete(activeInstanceId);
+			}
 			callback(error.message || String(error), null);
 		}
 	},
@@ -148,8 +275,8 @@ process.on('SIGTERM', () => {
 	console.log('SIGTERM received, shutting down gracefully...');
 	server.close(() => {
 		// Close all browser instances
-		for (const browser of browsers.values()) {
-			browser.close().catch(console.error);
+		for (const instanceId of browserInstances.keys()) {
+			cleanupBrowserInstance(instanceId, 'Shutdown');
 		}
 		process.exit(0);
 	});
@@ -158,8 +285,8 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
 	console.log('SIGINT received, shutting down gracefully...');
 	server.close(() => {
-		for (const browser of browsers.values()) {
-			browser.close().catch(console.error);
+		for (const instanceId of browserInstances.keys()) {
+			cleanupBrowserInstance(instanceId, 'Shutdown');
 		}
 		process.exit(0);
 	});
