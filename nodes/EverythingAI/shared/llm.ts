@@ -154,9 +154,10 @@ Output data structure:
      ${additionalPackages?.playwright ? `
      - **Browser Automation**: \`playwright\` - Modern browser automation library for web scraping, testing, and automation. Supports Chromium, Firefox, and WebKit.
        - **Important**: Playwright code will be executed on a remote Docker container, so all browser automation happens remotely.
-       - **Basic usage**: \`const { chromium } = require('playwright'); const browser = await chromium.launch({ headless: true }); const page = await browser.newPage(); await page.goto('https://example.com'); const title = await page.title(); await browser.close();\`
+       - **CRITICAL - URL Protocol Handling**: When receiving URLs from user input or data, you MUST check if they have a protocol (http:// or https://). If not, automatically add https://. Example: \`function ensureUrlProtocol(url) { if (!url.startsWith('http://') && !url.startsWith('https://')) return 'https://' + url; return url; }\` - Always use this before \`page.goto(url)\`
+       - **Basic usage**: \`const { chromium } = require('playwright'); const browser = await chromium.launch({ headless: true }); const page = await browser.newPage(); const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com'); await page.goto(url); const title = await page.title(); await browser.close();\`
        - **Common operations**:
-         - Navigate: \`await page.goto(url)\`
+         - Navigate: \`await page.goto(url)\` - Always ensure URL has protocol first!
          - Click: \`await page.click('selector')\` or \`await page.getByRole('button', { name: 'Submit' }).click()\`
          - Fill form: \`await page.fill('input[name="email"]', 'value')\`
          - Extract text: \`await page.textContent('selector')\`
@@ -336,6 +337,16 @@ If user instruction requires browser automation, web scraping with JavaScript re
 \`\`\`javascript
 const { chromium } = require('playwright');
 
+// Helper function to ensure URL has protocol (http:// or https://)
+function ensureUrlProtocol(url) {
+  if (!url) return url;
+  url = url.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return 'https://' + url;
+  }
+  return url;
+}
+
 const outputs = { 'A': [] };
 const $input = inputs[0] || [];
 
@@ -347,7 +358,9 @@ if ($input.length > 0) {
     const page = await browser.newPage();
     
     // Navigate to URL (example: get URL from input data)
-    const url = $input[0].json.url || 'https://example.com';
+    // IMPORTANT: Always check and add protocol to URLs
+    const rawUrl = $input[0].json.url || 'example.com';
+    const url = ensureUrlProtocol(rawUrl); // Will add https:// if missing
     await page.goto(url);
     
     // Extract data from page
@@ -385,6 +398,7 @@ return outputs;
 \`\`\`
 
 **Important Notes for Playwright**:
+- **URL Protocol**: ALWAYS check and add https:// protocol if URL doesn't have http:// or https:// before using with page.goto()
 - **Always close browser**: Use \`await browser.close()\` to free resources
 - **Use headless mode**: Set \`headless: true\` for server environments
 - **Handle errors**: Wrap browser operations in try-catch blocks

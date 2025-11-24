@@ -38,9 +38,23 @@ await browser.close();
 
 **1. Navigate and Get Content:**
 \`\`\`javascript
+// Helper function to ensure URL has protocol
+function ensureUrlProtocol(url) {
+  if (!url) return url;
+  url = url.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return 'https://' + url;
+  }
+  return url;
+}
+
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
-await page.goto('https://example.com');
+
+// Always check URL protocol before using
+const url = ensureUrlProtocol('example.com'); // Will become 'https://example.com'
+await page.goto(url);
+
 const content = await page.content(); // Get full HTML
 const text = await page.textContent('body'); // Get text content
 await browser.close();
@@ -134,29 +148,70 @@ outputs['A'].push({
 return outputs;
 \`\`\`
 
+### URL Protocol Handling (IMPORTANT!)
+
+**Always check and add protocol to URLs before using them with Playwright:**
+
+When receiving URLs from user input or data, you MUST check if they have a protocol (http:// or https://). If not, automatically add https://.
+
+\`\`\`javascript
+// Helper function to ensure URL has protocol
+function ensureUrlProtocol(url) {
+  if (!url) return url;
+  url = url.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return 'https://' + url;
+  }
+  return url;
+}
+
+// Usage example
+const urlFromInput = inputs[0]?.[0]?.json?.url || 'example.com';
+const url = ensureUrlProtocol(urlFromInput); // Will become 'https://example.com'
+await page.goto(url);
+\`\`\`
+
+**Always use this pattern when working with URLs from user input or data.**
+
 ### Important Notes
 
-1. **Always close the browser**: Use \`await browser.close()\` to free resources
-2. **Use headless mode**: Set \`headless: true\` for server environments
-3. **Handle errors**: Wrap browser operations in try-catch blocks
-4. **Return n8n format**: Always return data in \`{ json: {...}, binary: {...} }\` format
-5. **Remote execution**: Playwright code runs on a remote Docker container, so file paths are relative to the container
-6. **Async/await required**: All Playwright operations are async and must use await
+1. **URL Protocol**: Always check and add https:// protocol if URL doesn't have http:// or https://
+2. **Always close the browser**: Use \`await browser.close()\` to free resources
+3. **Use headless mode**: Set \`headless: true\` for server environments
+4. **Handle errors**: Wrap browser operations in try-catch blocks
+5. **Return n8n format**: Always return data in \`{ json: {...}, binary: {...} }\` format
+6. **Remote execution**: Playwright code runs on a remote Docker container, so file paths are relative to the container
+7. **Async/await required**: All Playwright operations are async and must use await
 
 ### Example: Scrape a Website
 
 \`\`\`javascript
 const { chromium } = require('playwright');
+
+// Helper function to ensure URL has protocol
+function ensureUrlProtocol(url) {
+  if (!url) return url;
+  url = url.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return 'https://' + url;
+  }
+  return url;
+}
+
 const outputs = { 'A': [] };
 
 try {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   
-  await page.goto('https://example.com');
+  // Get URL from input or use default, and ensure it has protocol
+  const rawUrl = inputs[0]?.[0]?.json?.url || 'example.com';
+  const url = ensureUrlProtocol(rawUrl);
+  await page.goto(url);
   
   // Extract data
   const data = {
+    url,
     title: await page.title(),
     headings: await page.$$eval('h1, h2, h3', elements => 
       elements.map(el => el.textContent)
