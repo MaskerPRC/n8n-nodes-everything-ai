@@ -71,7 +71,6 @@ This node requires OpenAI API credentials (or compatible API):
   - Level 0 (default): Only data structure/types, no actual values
   - Level 1-4: Sample data with increasing amounts and truncation limits
   - Level 5: Full data (not recommended for large datasets)
-- **Edit Mode**: When enabled, includes previous code in context for iterative refinement
 - **Model**: Select the LLM model to use (dynamically loaded from API)
 - **Custom Model Name**: Enter custom model name when "Custom" is selected
 

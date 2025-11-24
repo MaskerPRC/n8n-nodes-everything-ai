@@ -156,13 +156,6 @@ export class EverythingAi implements INodeType {
 				description: 'Control how much actual input data the AI can see when generating code. Higher levels provide more data but may increase token usage. Level 0 (default) only shows data structure/types.',
 			},
 			{
-				displayName: 'Edit Mode',
-				name: 'edit',
-				type: 'boolean',
-				default: false,
-				description: 'When enabled, the node will include previously generated code in the context when regenerating, allowing the LLM to modify existing code instead of generating from scratch. When disabled, code is generated completely from scratch.',
-			},
-			{
 				displayName: 'Model Name or ID',
 				name: 'model',
 				type: 'options',
@@ -359,7 +352,6 @@ export class EverythingAi implements INodeType {
 		const inputCount = this.getNodeParameter('numberInputs', 0) as number;
 		const outputCount = this.getNodeParameter('numberOutputs', 0) as number;
 		const instruction = this.getNodeParameter('instruction', 0) as string;
-		const editMode = this.getNodeParameter('edit', 0, false) as boolean;
 		const dataComplexityLevel = (this.getNodeParameter('dataComplexityLevel', 0, 0) as number) || 0;
 		const modelSelection = this.getNodeParameter('model', 0) as string;
 		const customModel = this.getNodeParameter('customModel', 0, '') as string;
@@ -432,16 +424,14 @@ export class EverythingAi implements INodeType {
 				const meta = await loadMeta(workflowId, nodeId);
 				const savedInstruction = meta.instruction as string;
 				const savedEnableSecurityCheck = meta.enableSecurityCheck !== false; // Default to true if not present
-				const savedEditMode = meta.edit || false; // Default to false if not present
 				const savedDataComplexityLevel = (meta.dataComplexityLevel as number) || 0;
 				const savedAdditionalPackages = (meta.additionalPackages as { cheerio?: boolean }) || {};
-				// If instruction changes, or input/output count changes, or security check setting changes, or edit mode changes, or data complexity level changes, or additional packages change, need to regenerate
+				// If instruction changes, or input/output count changes, or security check setting changes, or data complexity level changes, or additional packages change, need to regenerate
 				if (
 					savedInstruction !== instruction ||
 					meta.inputCount !== inputCount ||
 					meta.outputCount !== outputCount ||
 					savedEnableSecurityCheck !== enableSecurityCheck ||
-					savedEditMode !== editMode ||
 					savedDataComplexityLevel !== dataComplexityLevel ||
 					JSON.stringify(savedAdditionalPackages) !== JSON.stringify(additionalPackages)
 				) {
@@ -478,17 +468,6 @@ export class EverythingAi implements INodeType {
 				model,
 			};
 
-			// If edit mode is enabled, try to load previous code
-			let previousCode: string | undefined;
-			if (editMode) {
-				try {
-					previousCode = await loadGeneratedCode(workflowId, nodeId);
-				} catch {
-					// If no previous code exists, previousCode will be undefined
-					previousCode = undefined;
-				}
-			}
-
 			// Call LLM to generate code
 			const result = await generateCodeWithLLM.call(
 				this,
@@ -499,7 +478,6 @@ export class EverythingAi implements INodeType {
 				inputStructures,
 				advanced.customPrompt,
 				enableSecurityCheck,
-				previousCode,
 				dataComplexityLevel,
 				dataComplexityLevel > 0 ? allInputs : undefined,
 			);
@@ -507,14 +485,13 @@ export class EverythingAi implements INodeType {
 			code = result.code;
 			schemas = result.schemas;
 
-			// Save generated code (editMode is already defined above)
+			// Save generated code
 			await saveGeneratedCode(workflowId, nodeId, code, schemas, {
 				inputCount,
 				outputCount,
 				instruction,
 				model,
 				enableSecurityCheck,
-				edit: editMode,
 				dataComplexityLevel,
 				additionalPackages,
 				generatedAt: new Date().toISOString(),
