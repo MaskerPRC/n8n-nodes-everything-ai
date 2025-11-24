@@ -21,6 +21,7 @@ function buildSystemPrompt(
 	instruction: string,
 	customPrompt?: string,
 	enableSecurityCheck?: boolean,
+	additionalPackages?: { cheerio?: boolean; playwright?: boolean },
 ): string {
 	const securityWarning = enableSecurityCheck ? `
 ## Security Restrictions (IMPORTANT!)
@@ -145,14 +146,35 @@ Output data structure:
      - **Process**: \`child_process\`, \`cluster\`, \`worker_threads\`
      - **Other**: \`readline\`, \`repl\`, \`tty\`, \`vm\`
    - **External NPM Packages**:
+     ${additionalPackages?.cheerio ? `
      - **DOM Parsing**: \`cheerio\` - Fast, flexible, and lean implementation of core jQuery designed specifically for the server. Perfect for parsing HTML and manipulating DOM.
        - Example: \`const $ = require('cheerio').load(htmlString); const title = $('title').text();\`
        - Use cheerio to parse HTML, extract data, manipulate DOM elements, etc.
+     ` : ''}
+     ${additionalPackages?.playwright ? `
+     - **Browser Automation**: \`playwright\` - Modern browser automation library for web scraping, testing, and automation. Supports Chromium, Firefox, and WebKit.
+       - **Important**: Playwright code will be executed on a remote Docker container, so all browser automation happens remotely.
+       - **Basic usage**: \`const { chromium } = require('playwright'); const browser = await chromium.launch({ headless: true }); const page = await browser.newPage(); await page.goto('https://example.com'); const title = await page.title(); await browser.close();\`
+       - **Common operations**:
+         - Navigate: \`await page.goto(url)\`
+         - Click: \`await page.click('selector')\` or \`await page.getByRole('button', { name: 'Submit' }).click()\`
+         - Fill form: \`await page.fill('input[name="email"]', 'value')\`
+         - Extract text: \`await page.textContent('selector')\`
+         - Extract attributes: \`await page.getAttribute('a', 'href')\`
+         - Extract multiple elements: \`await page.$$eval('a', elements => elements.map(el => el.href))\`
+         - Screenshot: \`await page.screenshot({ path: 'screenshot.png', fullPage: true })\`
+         - Wait: \`await page.waitForSelector('.content')\`
+       - **Always close browser**: Use \`await browser.close()\` to free resources
+       - **Use headless mode**: Set \`headless: true\` for server environments
+       - **Return n8n format**: Always return data in \`{ json: {...}, binary: {...} }\` format
+       - Use playwright to automate browsers, scrape dynamic content, take screenshots, fill forms, etc.
+     ` : ''}
    - Examples: 
      - \`const fs = require('fs');\` - File system operations
      - \`const https = require('https');\` - HTTPS requests
-     - \`const cheerio = require('cheerio');\` - HTML/DOM parsing
-   - You can use these modules to make HTTP requests, read/write files, parse HTML, encrypt data, parse URLs, etc.
+     ${additionalPackages?.cheerio ? `- \`const cheerio = require('cheerio');\` - HTML/DOM parsing\n` : ''}
+     ${additionalPackages?.playwright ? `- \`const { chromium } = require('playwright');\` - Browser automation\n` : ''}
+   - You can use these modules to make HTTP requests, read/write files, parse HTML, encrypt data, parse URLs${additionalPackages?.playwright ? ', automate browsers' : ''}, etc.
 
 3. **IMPORTANT: Async Operations (HTTP requests, file I/O, etc.)**
    - **MUST use async/await or Promise-based approach** - DO NOT use blocking/synchronous waiting patterns
@@ -309,7 +331,67 @@ return (async () => {
 })();
 \`\`\`
 
-### Example 3.2: Using Cheerio for HTML/DOM Parsing
+### Example 3.2: Using Playwright for Browser Automation
+If user instruction requires browser automation, web scraping with JavaScript rendering, or dynamic content extraction, you can use \`playwright\`:
+\`\`\`javascript
+const { chromium } = require('playwright');
+
+const outputs = { 'A': [] };
+const $input = inputs[0] || [];
+
+// Use async/await to automate browser
+if ($input.length > 0) {
+  try {
+    // Launch browser in headless mode
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    
+    // Navigate to URL (example: get URL from input data)
+    const url = $input[0].json.url || 'https://example.com';
+    await page.goto(url);
+    
+    // Extract data from page
+    const title = await page.title();
+    const links = await page.$$eval('a', elements => 
+      elements.map(el => ({ text: el.textContent, href: el.href }))
+    );
+    
+    // Take screenshot (optional)
+    // await page.screenshot({ path: 'screenshot.png', fullPage: true });
+    
+    // Close browser
+    await browser.close();
+    
+    // Create output item with scraped data
+    outputs['A'].push({
+      json: {
+        url,
+        title,
+        links,
+        linkCount: links.length
+      },
+      binary: {}
+    });
+  } catch (error) {
+    // Handle errors
+    outputs['A'].push({
+      json: { error: error.message },
+      binary: {}
+    });
+  }
+}
+
+return outputs;
+\`\`\`
+
+**Important Notes for Playwright**:
+- **Always close browser**: Use \`await browser.close()\` to free resources
+- **Use headless mode**: Set \`headless: true\` for server environments
+- **Handle errors**: Wrap browser operations in try-catch blocks
+- **Return n8n format**: Always return data in \`{ json: {...}, binary: {...} }\` format
+- **Remote execution**: Playwright code runs on a remote Docker container
+
+### Example 3.3: Using Cheerio for HTML/DOM Parsing
 If user instruction requires parsing HTML or manipulating DOM, you can use \`cheerio\`:
 \`\`\`javascript
 const https = require('https');
@@ -717,8 +799,9 @@ export async function generateCodeWithLLM(
 	enableSecurityCheck?: boolean,
 	dataComplexityLevel?: number,
 	actualInputs?: INodeExecutionData[][],
+	additionalPackages?: { cheerio?: boolean; playwright?: boolean },
 ): Promise<LLMResponse> {
-	const systemPrompt = buildSystemPrompt(inputCount, outputCount, instruction, customPrompt, enableSecurityCheck);
+	const systemPrompt = buildSystemPrompt(inputCount, outputCount, instruction, customPrompt, enableSecurityCheck, additionalPackages);
 	
 	// If data complexity level is provided and > 0, use actual input data
 	let userPrompt: string;

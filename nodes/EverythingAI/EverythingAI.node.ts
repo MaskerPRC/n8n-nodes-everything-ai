@@ -48,11 +48,12 @@ import {
 	configuredOutputs,
 } from './shared/utils';
 import { generateCodeWithLLM } from './shared/llm';
+import { executeRemote } from './shared/remoteExecutor';
 
-export class EverythingAi implements INodeType {
+export class EverythingAI implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Everything AI',
-		name: 'everythingAi',
+		name: 'everythingAI',
 		icon: { light: 'file:../../icons/brain.svg', dark: 'file:../../icons/brain.dark.svg' },
 		group: ['transform'],
 		version: 1,
@@ -71,6 +72,10 @@ export class EverythingAi implements INodeType {
 			{
 				name: 'openAIApi',
 				required: true,
+			},
+			{
+				name: 'remoteExecutionApi',
+				required: false,
 			},
 		],
 		properties: [
@@ -234,11 +239,26 @@ export class EverythingAi implements INodeType {
 						type: 'collection',
 						placeholder: 'Configure External Packages',
 						default: {},
-						description: 'External packages require Docker and remote execution. They are disabled by default but can be enabled here. (No external packages available yet)',
+						description: 'External packages require Docker and remote execution. They are disabled by default but can be enabled here.',
 						options: [
-							// External packages will be added here in the future
-							// Example: Playwright, Puppeteer, etc.
+							{
+								displayName: 'Playwright',
+								name: 'playwright',
+								type: 'boolean',
+								default: false,
+								description: 'Enable Playwright - Browser automation library for web scraping and testing. Requires Docker container and remote execution credentials.',
+							},
 						],
+					},
+					{
+						displayName: 'Remote Execution Credentials',
+						name: 'remoteExecutionCredential',
+						type: 'credentials',
+						typeOptions: {
+							credentialTypes: ['remoteExecutionApi'],
+						},
+						default: '',
+						description: 'Credentials for connecting to remote execution server (required when external packages like Playwright are enabled). Go to Credentials page to create a new Remote Execution API credential.',
 					},
 				],
 			},
@@ -345,8 +365,9 @@ export class EverythingAi implements INodeType {
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
-		const workflowId = this.getWorkflow().id || 'default';
-		const nodeId = this.getNode().id;
+		try {
+			const workflowId = this.getWorkflow().id || 'default';
+			const nodeId = this.getNode().id;
 
 		// Get configuration parameters
 		const inputCount = this.getNodeParameter('numberInputs', 0) as number;
@@ -363,21 +384,34 @@ export class EverythingAi implements INodeType {
 				cheerio?: boolean;
 			};
 			additionalExternalPackages?: {
-				// External packages will be added here in the future
-				// Example: playwright?: boolean;
+				playwright?: boolean;
 			};
+			remoteExecutionCredential?: string;
 		};
 		const reset = advanced.reset || false;
 		const enableSecurityCheck = advanced.enableSecurityCheck !== false; // Default to true
 		// Additional packages: built-in packages default to true, external packages default to false
 		const builtInPackagesRaw = advanced.additionalBuiltInPackages || {};
-		// @ts-ignore - Reserved for future external packages
-		const externalPackagesRaw = advanced.additionalExternalPackages || {}; // Reserved for future external packages
+		const externalPackagesRaw = advanced.additionalExternalPackages || {};
 		const additionalPackages = {
 			cheerio: builtInPackagesRaw.cheerio !== false, // Default to true for built-in packages
-			// External packages will be added here in the future
-			// Example: playwright: externalPackagesRaw.playwright === true, // Default to false for external packages
+			playwright: externalPackagesRaw.playwright === true, // Default to false for external packages
 		};
+		
+		// Get remote execution credentials if external packages are enabled
+		let remoteCredentials: { serverUrl?: string; password?: string } | undefined;
+		if (additionalPackages.playwright && advanced.remoteExecutionCredential) {
+			try {
+				// Get credentials for remote execution
+				remoteCredentials = await this.getCredentials('remoteExecutionApi', 0);
+			} catch (error) {
+				// Credentials not found or invalid
+				throw new NodeOperationError(
+					this.getNode(),
+					'Remote Execution credentials are required when Playwright is enabled. Please configure Remote Execution API credentials in the Credentials page.',
+				);
+			}
+		}
 
 		// Determine the model name to use
 		// If no model is selected (empty string), use default value gpt-4o-mini
@@ -480,6 +514,7 @@ export class EverythingAi implements INodeType {
 				enableSecurityCheck,
 				dataComplexityLevel,
 				dataComplexityLevel > 0 ? allInputs : undefined,
+				additionalPackages,
 			);
 
 			code = result.code;
@@ -494,6 +529,7 @@ export class EverythingAi implements INodeType {
 				enableSecurityCheck,
 				dataComplexityLevel,
 				additionalPackages,
+				remoteExecutionCredential: advanced.remoteExecutionCredential || '',
 				generatedAt: new Date().toISOString(),
 			});
 			
@@ -665,36 +701,73 @@ export class EverythingAi implements INodeType {
 			}
 		}
 
-		// Create function with require available in scope
-		// Wrap function body in async function to support await
-		const asyncFunctionBody = `
-			return (async function() {
-				${functionBody}
-			})();
-		`;
-		
-		const processFunction = new Function(
-			'inputs',
-			'require',
-			asyncFunctionBody
+		// Check if code uses Playwright and we have remote credentials
+		const usesPlaywright = additionalPackages.playwright && (
+			code.includes('playwright') ||
+			code.includes('chromium') ||
+			code.includes('firefox') ||
+			code.includes('webkit') ||
+			code.includes("require('playwright')") ||
+			code.includes('require("playwright")')
 		);
 
-		try {
-			let result;
+		let result: Record<string, INodeExecutionData[]>;
+
+		if (usesPlaywright && remoteCredentials) {
+			// Execute remotely using RPC
 			try {
-				// Call the function with inputs and custom require
-				result = processFunction(allInputs, customRequire);
-				// Result should always be a Promise now, await it
-				if (result && typeof result.then === 'function') {
-					result = await result;
-				} else if (result === undefined) {
-					// If result is undefined, the async IIFE might not have been returned
-					// Try to extract and execute the async code differently
+				const serverUrl = remoteCredentials.serverUrl || 'tcp://localhost:5004';
+				const password = remoteCredentials.password || '';
+				
+				// Execute code remotely via RPC
+				result = await executeRemote(serverUrl, password, functionBody, allInputs);
+			} catch (error: unknown) {
+				const errorMessage = error instanceof Error ? error.message : String(error);
+				throw new NodeOperationError(
+					this.getNode(),
+					`Remote execution failed: ${errorMessage}. Please check if the RPC server is running and credentials are correct.`,
+				);
+			}
+		} else {
+			// Execute locally
+			// Create function with require available in scope
+			// Wrap function body in async function to support await
+			const asyncFunctionBody = `
+				return (async function() {
+					${functionBody}
+				})();
+			`;
+			
+			const processFunction = new Function(
+				'inputs',
+				'require',
+				asyncFunctionBody
+			);
+
+			try {
+				let localResult;
+				try {
+					// Call the function with inputs and custom require
+					localResult = processFunction(allInputs, customRequire);
+					// Result should always be a Promise now, await it
+					if (localResult && typeof localResult.then === 'function') {
+						localResult = await localResult;
+					} else if (localResult === undefined) {
+						// If result is undefined, the async IIFE might not have been returned
+						// Try to extract and execute the async code differently
+						throw new NodeOperationError(
+							this.getNode(),
+							'Generated code returned undefined. The code may have used async IIFE without returning it. Please ensure async code returns the Promise or uses await directly in function body.',
+						);
+					}
+				} catch (execError: unknown) {
+					const execErrorMessage = execError instanceof Error ? execError.message : String(execError);
 					throw new NodeOperationError(
 						this.getNode(),
-						'Generated code returned undefined. The code may have used async IIFE without returning it. Please ensure async code returns the Promise or uses await directly in function body.',
+						`Error occurred while executing generated code: ${execErrorMessage}\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}\n\nInput data:\n${JSON.stringify(allInputs.map(input => input.length), null, 2)}`,
 					);
 				}
+				result = localResult;
 			} catch (execError: unknown) {
 				const execErrorMessage = execError instanceof Error ? execError.message : String(execError);
 				throw new NodeOperationError(
@@ -702,52 +775,53 @@ export class EverythingAi implements INodeType {
 					`Error occurred while executing generated code: ${execErrorMessage}\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}\n\nInput data:\n${JSON.stringify(allInputs.map(input => input.length), null, 2)}`,
 				);
 			}
+		}
 
-			// Validate return result
-			if (result === null || result === undefined) {
+		// Validate return result
+		if (result === null || result === undefined) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`Generated code returned ${result === null ? 'null' : 'undefined'}. Code must return an object in format { "A": [...], "B": [...], ... }.\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}\n\nPlease check if code contains return statement.`,
+			);
+		}
+
+		if (typeof result !== 'object') {
+			throw new NodeOperationError(
+				this.getNode(),
+				`Generated code returned incorrect format. Expected an object, but actually returned ${typeof result} (value: ${JSON.stringify(result)}). Code must return format: { "A": [...], "B": [...], ... }.\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}\n\nActual return type: ${typeof result}\nActual return value: ${JSON.stringify(result)}`,
+			);
+		}
+
+		if (Array.isArray(result)) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`Generated code returned an array instead of an object. Returned value: ${JSON.stringify(result)}. Code must return an object in format { "A": [...], "B": [...], ... }, where keys are output port letters (A, B, C...), and values are data item arrays.\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}`,
+			);
+		}
+
+		// Organize data by output port
+		const outputs: INodeExecutionData[][] = [];
+		for (let i = 0; i < outputCount; i++) {
+			const outputLetter = String.fromCharCode(65 + i); // A, B, C, ...
+			let outputData = result[outputLetter] || [];
+			
+			// Ensure output is an array
+			if (!Array.isArray(outputData)) {
 				throw new NodeOperationError(
 					this.getNode(),
-					`Generated code returned ${result === null ? 'null' : 'undefined'}. Code must return an object in format { "A": [...], "B": [...], ... }.\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}\n\nPlease check if code contains return statement.`,
+					`Output port ${outputLetter} data must be an array`,
 				);
 			}
 
-			if (typeof result !== 'object') {
-				throw new NodeOperationError(
-					this.getNode(),
-					`Generated code returned incorrect format. Expected an object, but actually returned ${typeof result} (value: ${JSON.stringify(result)}). Code must return format: { "A": [...], "B": [...], ... }.\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}\n\nActual return type: ${typeof result}\nActual return value: ${JSON.stringify(result)}`,
-				);
-			}
+			// Note: Do not automatically add data items to empty arrays
+			// If generated code returns empty array, it means this path should not execute (this is correct behavior)
+			// Only when code explicitly needs this output port to have data but forgot to add it, should we supplement
+			// But to maintain code generation consistency, we let LLM handle it itself, no automatic supplementation here
 
-			if (Array.isArray(result)) {
-				throw new NodeOperationError(
-					this.getNode(),
-					`Generated code returned an array instead of an object. Returned value: ${JSON.stringify(result)}. Code must return an object in format { "A": [...], "B": [...], ... }, where keys are output port letters (A, B, C...), and values are data item arrays.\n\nGenerated code:\n${code}\n\nExtracted function body:\n${functionBody}`,
-				);
-			}
+			outputs.push(outputData);
+		}
 
-			// Organize data by output port
-			const outputs: INodeExecutionData[][] = [];
-			for (let i = 0; i < outputCount; i++) {
-				const outputLetter = String.fromCharCode(65 + i); // A, B, C, ...
-				let outputData = result[outputLetter] || [];
-				
-				// Ensure output is an array
-				if (!Array.isArray(outputData)) {
-					throw new NodeOperationError(
-						this.getNode(),
-						`Output port ${outputLetter} data must be an array`,
-					);
-				}
-
-				// Note: Do not automatically add data items to empty arrays
-				// If generated code returns empty array, it means this path should not execute (this is correct behavior)
-				// Only when code explicitly needs this output port to have data but forgot to add it, should we supplement
-				// But to maintain code generation consistency, we let LLM handle it itself, no automatic supplementation here
-
-				outputs.push(outputData);
-			}
-
-			return outputs;
+		return outputs;
 		} catch (error: unknown) {
 			if (error instanceof NodeOperationError) {
 				throw error;
