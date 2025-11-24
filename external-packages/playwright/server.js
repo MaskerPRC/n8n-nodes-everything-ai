@@ -35,6 +35,7 @@ const service = {
 	 * @param {Function} callback - Callback function
 	 */
 	async execute(code, inputs, callback) {
+		console.log('Execute called with code length:', code.length);
 		try {
 			// Create a safe execution context with Playwright available
 			const safeRequire = (moduleName) => {
@@ -53,11 +54,14 @@ const service = {
 			`;
 
 			// Execute code in isolated context
+			console.log('Executing code...');
 			const func = new Function('require', 'inputs', asyncCode);
 			const result = await func(safeRequire, inputs);
+			console.log('Code executed successfully, result:', typeof result);
 
 			callback(null, result);
 		} catch (error) {
+			console.error('Execution error:', error);
 			callback(error.message || String(error), null);
 		}
 	},
@@ -83,21 +87,30 @@ const server = net.createServer((socket) => {
 			buffer += data.toString();
 			if (buffer.includes('\n')) {
 				const password = buffer.split('\n')[0].trim();
+				console.log('Received password attempt');
 				if (password === PASSWORD) {
 					authenticated = true;
+					console.log('Authentication successful, setting up dnode');
 					socket.write('OK\n');
 					
 					// After authentication, create dnode server for this connection
 					dnodeServer = dnode(service);
 					
+					// Remove the 'data' listener for authentication BEFORE piping
+					socket.removeAllListeners('data');
+					
 					// Pipe dnode server to socket and vice versa
 					dnodeServer.pipe(socket).pipe(dnodeServer);
 					
-					// Remove the 'data' listener for authentication
-					socket.removeAllListeners('data');
-					
 					// The remaining data (if any) will be handled by dnode through the pipe
+					const remainingData = buffer.substring(buffer.indexOf('\n') + 1);
+					if (remainingData) {
+						// Feed remaining data to dnode
+						socket.unshift(Buffer.from(remainingData));
+					}
+					buffer = '';
 				} else {
+					console.log('Authentication failed');
 					socket.write('AUTH_FAILED\n');
 					socket.end();
 				}
