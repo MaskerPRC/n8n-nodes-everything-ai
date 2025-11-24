@@ -9,6 +9,7 @@ A multi-input, multi-output, natural language-driven AI node for n8n that automa
 - **Automatic Code Generation**: Uses LLM to generate JavaScript code based on your requirements
 - **Smart Caching**: Automatically caches generated code and regenerates only when requirements change
 - **Multiple LLM Support**: Supports OpenAI-compatible APIs (OpenAI, Anthropic, etc.)
+- **Extended Package Support**: Supports Node.js built-in modules and external NPM packages (currently includes Cheerio for HTML/DOM parsing)
 
 ## Roadmap / Milestones
 
@@ -22,7 +23,7 @@ We have several exciting features planned for future releases:
 - [ ] **🌍 Multi-language Support**: Support multiple languages for natural language instructions (Chinese, English, and more). Localize the node interface and documentation to support users from different language backgrounds, making the node accessible to a global audience.
 - [ ] **🔍 AI Code Review & Validation**: Implement AI-powered code review to check generated code for potential issues, bugs, and security vulnerabilities. Add comprehensive validation to ensure generated code is safe, efficient, and follows best practices. Since code is AI-generated, add an additional layer of AI review to catch errors and improve reliability.
 - [ ] **🔌 Additional LLM Provider Support**: Support integration with other major LLM providers (Anthropic Claude, Google Gemini, local models, etc.). Allow users to choose from different LLM providers based on their needs and preferences, providing a unified interface for different LLM providers while maintaining compatibility.
-- [ ] **📦 Extended NPM Package Support**: Support more popular NPM packages in generated code, including browser automation tools (Playwright, Puppeteer), DOM parsing libraries (Cheerio, jsdom), and other commonly used packages. This will expand the capabilities of AI-generated code for web scraping, browser automation, and DOM manipulation tasks.
+- [ ] **📦 Extended NPM Package Support**: Support more popular NPM packages in generated code. Currently supports Cheerio for HTML/DOM parsing. Planned additions include browser automation tools (Playwright, Puppeteer), additional DOM parsing libraries (jsdom), and other commonly used packages. This will expand the capabilities of AI-generated code for web scraping, browser automation, and DOM manipulation tasks.
 
 ---
 

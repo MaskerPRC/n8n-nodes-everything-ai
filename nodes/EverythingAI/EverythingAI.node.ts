@@ -34,6 +34,9 @@ import * as tls from 'tls';
 import * as tty from 'tty';
 import * as vm from 'vm';
 import * as worker_threads from 'worker_threads';
+// Import external NPM packages that can be used in generated code
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import * as cheerio from 'cheerio';
 import {
 	isNodePrepared,
 	saveGeneratedCode,
@@ -507,10 +510,11 @@ export class EverythingAi implements INodeType {
 			}
 		}
 
-		// Create a custom require function that provides access to Node.js built-in modules
-		// This allows the generated code to use require('https'), require('http'), require('fs'), etc.
+		// Create a custom require function that provides access to Node.js built-in modules and external packages
+		// This allows the generated code to use require('https'), require('http'), require('fs'), require('cheerio'), etc.
 		const customRequire = (moduleName: string) => {
 			const modules: Record<string, unknown> = {
+				// Node.js built-in modules
 				'https': https,
 				'http': http,
 				'crypto': crypto,
@@ -537,6 +541,8 @@ export class EverythingAi implements INodeType {
 				'tty': tty,
 				'vm': vm,
 				'worker_threads': worker_threads,
+				// External NPM packages
+				'cheerio': cheerio,
 			};
 			if (modules[moduleName]) {
 				return modules[moduleName];
@@ -546,7 +552,8 @@ export class EverythingAi implements INodeType {
 				// eslint-disable-next-line @typescript-eslint/no-require-imports
 				return require(moduleName);
 			} catch {
-				throw new Error(`Module '${moduleName}' is not available. Available built-in modules: ${Object.keys(modules).join(', ')}`);
+				const availableModules = Object.keys(modules).join(', ');
+				throw new Error(`Module '${moduleName}' is not available. Available modules: ${availableModules}`);
 			}
 		};
 

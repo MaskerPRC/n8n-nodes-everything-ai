@@ -153,16 +153,24 @@ Output data structure:
    }
    \`\`\`
 
-2. Code can use Node.js built-in modules via \`require\`. All standard Node.js built-in modules are available:
-   - **Network**: \`http\`, \`https\`, \`net\`, \`dgram\`, \`dns\`, \`tls\`
-   - **File System**: \`fs\`, \`path\`
-   - **Utilities**: \`crypto\`, \`url\`, \`querystring\`, \`util\`, \`buffer\`, \`stream\`, \`zlib\`, \`string_decoder\`
-   - **OS**: \`os\`, \`process\` (global, no need to require)
-   - **Async**: \`events\`, \`timers\`
-   - **Process**: \`child_process\`, \`cluster\`, \`worker_threads\`
-   - **Other**: \`readline\`, \`repl\`, \`tty\`, \`vm\`
-   - Example: \`const fs = require('fs');\`, \`const https = require('https');\`, \`const crypto = require('crypto');\`
-   - You can use these modules to make HTTP requests, read/write files, encrypt data, parse URLs, etc.
+2. Code can use Node.js built-in modules and external NPM packages via \`require\`. Available modules:
+   - **Node.js Built-in Modules**:
+     - **Network**: \`http\`, \`https\`, \`net\`, \`dgram\`, \`dns\`, \`tls\`
+     - **File System**: \`fs\`, \`path\`
+     - **Utilities**: \`crypto\`, \`url\`, \`querystring\`, \`util\`, \`buffer\`, \`stream\`, \`zlib\`, \`string_decoder\`
+     - **OS**: \`os\`, \`process\` (global, no need to require)
+     - **Async**: \`events\`, \`timers\`
+     - **Process**: \`child_process\`, \`cluster\`, \`worker_threads\`
+     - **Other**: \`readline\`, \`repl\`, \`tty\`, \`vm\`
+   - **External NPM Packages**:
+     - **DOM Parsing**: \`cheerio\` - Fast, flexible, and lean implementation of core jQuery designed specifically for the server. Perfect for parsing HTML and manipulating DOM.
+       - Example: \`const $ = require('cheerio').load(htmlString); const title = $('title').text();\`
+       - Use cheerio to parse HTML, extract data, manipulate DOM elements, etc.
+   - Examples: 
+     - \`const fs = require('fs');\` - File system operations
+     - \`const https = require('https');\` - HTTPS requests
+     - \`const cheerio = require('cheerio');\` - HTML/DOM parsing
+   - You can use these modules to make HTTP requests, read/write files, parse HTML, encrypt data, parse URLs, etc.
 
 3. **IMPORTANT: Async Operations (HTTP requests, file I/O, etc.)**
    - **MUST use async/await or Promise-based approach** - DO NOT use blocking/synchronous waiting patterns
@@ -319,6 +327,58 @@ return (async () => {
 })();
 \`\`\`
 
+### Example 3.2: Using Cheerio for HTML/DOM Parsing
+If user instruction requires parsing HTML or manipulating DOM, you can use \`cheerio\`:
+\`\`\`javascript
+const https = require('https');
+const cheerio = require('cheerio');
+
+// Helper function to make HTTP GET request (returns Promise)
+function httpGet(urlString) {
+  return new Promise((resolve, reject) => {
+    https.get(urlString, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => { resolve(data); });
+    }).on('error', reject);
+  });
+}
+
+const outputs = { 'A': [] };
+const $input = inputs[0] || [];
+
+// Use async/await to fetch HTML and parse it
+if ($input.length > 0) {
+  // Fetch HTML from URL
+  const html = await httpGet('https://example.com');
+  
+  // Load HTML into cheerio (similar to jQuery)
+  const $ = cheerio.load(html);
+  
+  // Extract data using CSS selectors
+  const title = $('title').text();
+  const links = [];
+  $('a').each((i, elem) => {
+    links.push({
+      text: $(elem).text(),
+      href: $(elem).attr('href')
+    });
+  });
+  
+  // Create output item with parsed data
+  outputs['A'].push({
+    json: {
+      title,
+      links,
+      linkCount: links.length
+    },
+    binary: {}
+  });
+}
+
+return outputs;
+\`\`\`
+
 **Important Notes**:
 - **MUST use async/await or Promise** for async operations (HTTP requests, file I/O, etc.)
 - **DO NOT use blocking patterns** like \`while (!done) { ... }\` or \`Atomics.wait\` - these will cause timeouts
@@ -331,6 +391,8 @@ return (async () => {
   - **Async**: \`events\`, \`timers\`
   - **Process**: \`child_process\`, \`cluster\`, \`worker_threads\`
   - **Other**: \`readline\`, \`repl\`, \`tty\`, \`vm\`
+- **External packages available**:
+  - **cheerio**: HTML/DOM parsing and manipulation (jQuery-like API)
 
 ### Example 4: Conditional Routing Without Forwarding Data (Important!)
 If user instruction is "If the first item's language is txt, go to route B (don't forward any data)", the code should be:
