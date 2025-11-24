@@ -1,4 +1,4 @@
-import type { IExecuteFunctions } from 'n8n-workflow';
+import type { IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
 interface LLMConfig {
@@ -440,21 +440,216 @@ Please strictly follow user instructions and data structure to generate code.`;
 }
 
 /**
- * Build user prompt (includes data structure)
+ * Truncate string value if it exceeds max length
  */
-function buildUserPrompt(inputStructures: Array<{
+function truncateString(value: string, maxLength: number): string {
+	if (value.length <= maxLength) {
+		return value;
+	}
+	return value.substring(0, maxLength) + '... (truncated)';
+}
+
+/**
+ * Truncate long text fields in an object recursively
+ */
+function truncateLongFields(obj: unknown, maxLength: number): unknown {
+	if (obj === null || obj === undefined) {
+		return obj;
+	}
+	
+	if (typeof obj === 'string') {
+		return truncateString(obj, maxLength);
+	}
+	
+	if (Array.isArray(obj)) {
+		return obj.map(item => truncateLongFields(item, maxLength));
+	}
+	
+	if (typeof obj === 'object') {
+		const result: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(obj)) {
+			result[key] = truncateLongFields(value, maxLength);
+		}
+		return result;
+	}
+	
+	return obj;
+}
+
+/**
+ * Process input data based on complexity level
+ */
+function processInputDataByLevel(
+	inputs: INodeExecutionData[][],
+	level: number,
+): Array<{
 	type: string;
 	structure?: Record<string, unknown>;
 	itemCount?: number;
-}>): string {
+	sampleData?: unknown[];
+}> {
+	return inputs.map((inputItems) => {
+		if (inputItems.length === 0) {
+			return { type: 'empty' };
+		}
+		
+		const totalCount = inputItems.length;
+		
+		// Level 0: Only structure, no actual data
+		if (level === 0) {
+			const firstItem = inputItems[0];
+			return {
+				type: 'data',
+				structure: sanitizeDataStructure(firstItem.json),
+				itemCount: totalCount,
+			};
+		}
+		
+		// Level 1: 1-2 items, key fields only, truncate to 100 chars
+		if (level === 1) {
+			const maxItems = Math.min(2, totalCount);
+			const sampleItems = inputItems.slice(0, maxItems).map(item => ({
+				json: truncateLongFields(item.json, 100),
+				binary: item.binary ? { ...item.binary, _note: 'Binary data present' } : {},
+			}));
+			return {
+				type: 'data',
+				structure: sanitizeDataStructure(inputItems[0].json),
+				itemCount: totalCount,
+				sampleData: sampleItems,
+			};
+		}
+		
+		// Level 2: Up to 5 items, complete fields, truncate to 500 chars
+		if (level === 2) {
+			const maxItems = Math.min(5, totalCount);
+			const sampleItems = inputItems.slice(0, maxItems).map(item => ({
+				json: truncateLongFields(item.json, 500),
+				binary: item.binary ? { ...item.binary, _note: 'Binary data present' } : {},
+			}));
+			return {
+				type: 'data',
+				structure: sanitizeDataStructure(inputItems[0].json),
+				itemCount: totalCount,
+				sampleData: sampleItems,
+			};
+		}
+		
+		// Level 3: Up to 10 items, complete fields, truncate to 1000 chars
+		if (level === 3) {
+			const maxItems = Math.min(10, totalCount);
+			const sampleItems = inputItems.slice(0, maxItems).map(item => ({
+				json: truncateLongFields(item.json, 1000),
+				binary: item.binary ? { ...item.binary, _note: 'Binary data present' } : {},
+			}));
+			return {
+				type: 'data',
+				structure: sanitizeDataStructure(inputItems[0].json),
+				itemCount: totalCount,
+				sampleData: sampleItems,
+			};
+		}
+		
+		// Level 4: Up to 50 items, complete fields, truncate to 2000 chars
+		if (level === 4) {
+			const maxItems = Math.min(50, totalCount);
+			const sampleItems = inputItems.slice(0, maxItems).map(item => ({
+				json: truncateLongFields(item.json, 2000),
+				binary: item.binary ? { ...item.binary, _note: 'Binary data present' } : {},
+			}));
+			return {
+				type: 'data',
+				structure: sanitizeDataStructure(inputItems[0].json),
+				itemCount: totalCount,
+				sampleData: sampleItems,
+			};
+		}
+		
+		// Level 5: All items, no truncation
+		if (level === 5) {
+			const sampleItems = inputItems.map(item => ({
+				json: item.json,
+				binary: item.binary ? { ...item.binary, _note: 'Binary data present' } : {},
+			}));
+			return {
+				type: 'data',
+				structure: sanitizeDataStructure(inputItems[0].json),
+				itemCount: totalCount,
+				sampleData: sampleItems,
+			};
+		}
+		
+		// Default: same as level 0
+		const firstItem = inputItems[0];
+		return {
+			type: 'data',
+			structure: sanitizeDataStructure(firstItem.json),
+			itemCount: totalCount,
+		};
+	});
+}
+
+/**
+ * Sanitize data structure (similar to utils.ts but simplified for LLM context)
+ */
+function sanitizeDataStructure(value: unknown): Record<string, unknown> {
+	if (value === null || value === undefined) {
+		return { type: 'null', value: null };
+	}
+	
+	if (Array.isArray(value)) {
+		if (value.length === 0) {
+			return { type: 'array', items: [], example: '[]' };
+		}
+		return {
+			type: 'array',
+			items: sanitizeDataStructure(value[0]),
+			example: `[${sanitizeDataStructure(value[0]).example || '...'}]`,
+		};
+	}
+	
+	if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+		const sanitized: Record<string, unknown> = { type: 'object', properties: {} };
+		for (const [key, val] of Object.entries(value)) {
+			(sanitized.properties as Record<string, unknown>)[key] = sanitizeDataStructure(val);
+		}
+		sanitized.example = `{${Object.keys(value).join(', ')}}`;
+		return sanitized;
+	}
+	
+	const type = typeof value;
+	return {
+		type,
+		example: type === 'string' ? 'string' : type === 'number' ? 0 : type === 'boolean' ? true : value,
+	};
+}
+
+/**
+ * Build user prompt (includes data structure and optionally sample data)
+ */
+function buildUserPrompt(
+	processedInputs: Array<{
+		type: string;
+		structure?: Record<string, unknown>;
+		itemCount?: number;
+		sampleData?: unknown[];
+	}>,
+): string {
 	let prompt = '## Input Data Structure\n\n';
-	inputStructures.forEach((struct, index) => {
+	processedInputs.forEach((input, index) => {
 		prompt += `### Input Port ${index + 1}\n`;
-		if (struct.type === 'empty') {
+		if (input.type === 'empty') {
 			prompt += 'No data\n\n';
 		} else {
-			prompt += `Data item count: ${struct.itemCount}\n`;
-			prompt += `Data structure:\n\`\`\`json\n${JSON.stringify(struct.structure, null, 2)}\n\`\`\`\n\n`;
+			prompt += `Data item count: ${input.itemCount}\n`;
+			prompt += `Data structure:\n\`\`\`json\n${JSON.stringify(input.structure, null, 2)}\n\`\`\`\n`;
+			
+			// If sample data is provided, include it
+			if (input.sampleData && input.sampleData.length > 0) {
+				prompt += `\nSample data (${input.sampleData.length} of ${input.itemCount} items):\n\`\`\`json\n${JSON.stringify(input.sampleData, null, 2)}\n\`\`\`\n`;
+			}
+			
+			prompt += '\n';
 		}
 	});
 	return prompt;
@@ -477,9 +672,20 @@ export async function generateCodeWithLLM(
 	customPrompt?: string,
 	enableSecurityCheck?: boolean,
 	previousCode?: string,
+	dataComplexityLevel?: number,
+	actualInputs?: INodeExecutionData[][],
 ): Promise<LLMResponse> {
 	const systemPrompt = buildSystemPrompt(inputCount, outputCount, instruction, customPrompt, enableSecurityCheck, previousCode);
-	const userPrompt = buildUserPrompt(inputStructures);
+	
+	// If data complexity level is provided and > 0, use actual input data
+	let userPrompt: string;
+	if (dataComplexityLevel !== undefined && dataComplexityLevel > 0 && actualInputs) {
+		const processedInputs = processInputDataByLevel(actualInputs, dataComplexityLevel);
+		userPrompt = buildUserPrompt(processedInputs);
+	} else {
+		// Level 0 or no level specified: use structure only
+		userPrompt = buildUserPrompt(inputStructures);
+	}
 
 	const requestBody = {
 		model: config.model,

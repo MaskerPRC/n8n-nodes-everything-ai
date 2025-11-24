@@ -114,6 +114,45 @@ export class EverythingAi implements INodeType {
 				required: true,
 			},
 			{
+				displayName: 'Data Complexity Level',
+				name: 'dataComplexityLevel',
+				type: 'options',
+				default: 0,
+				options: [
+					{
+						name: '0 - Structure Only (Default)',
+						value: 0,
+						description: 'Only provide data structure/types, no actual data values. Same as not configuring this option.',
+					},
+					{
+						name: '1 - Minimal Sample',
+						value: 1,
+						description: 'Provide 1-2 sample items with key fields only. Long text fields are truncated to 100 characters.',
+					},
+					{
+						name: '2 - Small Sample',
+						value: 2,
+						description: 'Provide up to 5 sample items with complete fields. Long text fields are truncated to 500 characters.',
+					},
+					{
+						name: '3 - Medium Sample',
+						value: 3,
+						description: 'Provide up to 10 sample items with complete fields. Long text fields are truncated to 1000 characters.',
+					},
+					{
+						name: '4 - Large Sample',
+						value: 4,
+						description: 'Provide up to 50 sample items with complete fields. Long text fields are truncated to 2000 characters.',
+					},
+					{
+						name: '5 - Full Data (Not Recommended)',
+						value: 5,
+						description: 'Provide all input data without truncation. Warning: May exceed token limits for large datasets.',
+					},
+				],
+				description: 'Control how much actual input data the AI can see when generating code. Higher levels provide more data but may increase token usage. Level 0 (default) only shows data structure/types.',
+			},
+			{
 				displayName: 'Edit Mode',
 				name: 'edit',
 				type: 'boolean',
@@ -289,6 +328,7 @@ export class EverythingAi implements INodeType {
 		const outputCount = this.getNodeParameter('numberOutputs', 0) as number;
 		const instruction = this.getNodeParameter('instruction', 0) as string;
 		const editMode = this.getNodeParameter('edit', 0, false) as boolean;
+		const dataComplexityLevel = (this.getNodeParameter('dataComplexityLevel', 0, 0) as number) || 0;
 		const modelSelection = this.getNodeParameter('model', 0) as string;
 		const customModel = this.getNodeParameter('customModel', 0, '') as string;
 		const advanced = this.getNodeParameter('advanced', 0, {}) as {
@@ -345,13 +385,15 @@ export class EverythingAi implements INodeType {
 				const savedInstruction = meta.instruction as string;
 				const savedEnableSecurityCheck = meta.enableSecurityCheck !== false; // Default to true if not present
 				const savedEditMode = meta.edit || false; // Default to false if not present
-				// If instruction changes, or input/output count changes, or security check setting changes, or edit mode changes, need to regenerate
+				const savedDataComplexityLevel = (meta.dataComplexityLevel as number) || 0;
+				// If instruction changes, or input/output count changes, or security check setting changes, or edit mode changes, or data complexity level changes, need to regenerate
 				if (
 					savedInstruction !== instruction ||
 					meta.inputCount !== inputCount ||
 					meta.outputCount !== outputCount ||
 					savedEnableSecurityCheck !== enableSecurityCheck ||
-					savedEditMode !== editMode
+					savedEditMode !== editMode ||
+					savedDataComplexityLevel !== dataComplexityLevel
 				) {
 					isPrepared = false;
 					// Delete old files, prepare for regeneration
@@ -408,6 +450,8 @@ export class EverythingAi implements INodeType {
 				advanced.customPrompt,
 				enableSecurityCheck,
 				previousCode,
+				dataComplexityLevel,
+				dataComplexityLevel > 0 ? allInputs : undefined,
 			);
 
 			code = result.code;
@@ -421,6 +465,7 @@ export class EverythingAi implements INodeType {
 				model,
 				enableSecurityCheck,
 				edit: editMode,
+				dataComplexityLevel,
 				generatedAt: new Date().toISOString(),
 			});
 			
