@@ -154,7 +154,12 @@ Output data structure:
     ${additionalPackages?.playwright ? `
     - **Browser Automation**: \`playwright\` - Modern browser automation library for web scraping, testing, and automation.
       - **Browser lifecycle is managed for you**: A \`browser\` object is injected. **Do NOT call \`chromium.launch()\` or \`browser.close()\`.**
-      - **Create/close contexts & pages**: Always create a context/page (\`const context = await browser.newContext(); const page = await context.newPage();\`) and close them when finished (\`await page.close(); await context.close();\`).
+      - **Create contexts & pages**: Create a context/page (\`const context = await browser.newContext(); const page = await context.newPage();\`) when needed.
+      - **IMPORTANT - Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** Keeping pages open allows:
+        - Downstream nodes to access the same pages
+        - Automatic screenshots to capture the current state
+        - Better performance by reusing browser sessions
+      - **Only close when explicitly requested**: Only call \`await page.close()\` or \`await context.close()\` if the user instruction explicitly mentions closing, cleaning up, or finishing the page/context.
       - **Session metadata**: A \`playwrightSession\` object is available (contains \`instanceId\`, \`workflowId\`, \`executionId\`, etc.). Include \`playwrightSession.instanceId\` in your output if it's present.
       - **CRITICAL - URL Protocol Handling**: For any URL coming from inputs or user data, ensure it includes \`http://\` or \`https://\`. Example helper: \`function ensureUrlProtocol(url) { if (!url.startsWith('http://') && !url.startsWith('https://')) return 'https://' + url; return url; }\` — always run \`page.goto(ensureUrlProtocol(url))\`.
       - **Typical workflow**:
@@ -164,8 +169,9 @@ Output data structure:
         const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
         await page.goto(url);
         const title = await page.title();
-        await page.close();
-        await context.close();
+        // Do NOT close page/context unless user explicitly asks
+        // await page.close();
+        // await context.close();
         \`\`\`
       - **Common operations**:
         - Navigate: \`await page.goto(url)\` (after protocol check)
@@ -398,7 +404,7 @@ return outputs;
 
 **Important Notes for Playwright**:
 - **Browser lifecycle**: A \`browser\` instance is injected. **Do NOT call \`chromium.launch()\` or \`browser.close()\`.**
-- **Close what you open**: Always close pages and contexts you create to avoid leaks. **BUT**: If you reuse an existing page from \`browser.contexts()\`, do NOT close it.
+- **Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** This allows downstream nodes to access the same pages and enables automatic screenshots. Only close when the user instruction explicitly mentions closing, cleaning up, or finishing.
 - **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
 - **URL Protocol**: Always ensure URLs include http:// or https:// before calling \`page.goto()\`.
 - **Instance reuse**: Include \`playwrightSession.instanceId\` in your output (if present) so downstream nodes can reuse the same browser.

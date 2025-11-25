@@ -46,8 +46,10 @@ await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
 const html = await page.content();
 const title = await page.title();
 
-await page.close();
-await context.close();
+// Do NOT close page/context unless user explicitly asks
+// Keeping pages open allows downstream nodes to access them and enables automatic screenshots
+// await page.close();
+// await context.close();
 \`\`\`
 
 **2. Click / Fill / Extract**
@@ -118,8 +120,10 @@ await page.goto(url);
 
 const title = await page.title();
 
-await page.close();
-await context.close();
+// Do NOT close page/context unless user explicitly asks
+// Keeping pages open allows downstream nodes to access them
+// await page.close();
+// await context.close();
 
 outputs.A.push({
   json: {
@@ -136,7 +140,11 @@ return outputs;
 ### Important Rules
 
 1. **Browser lifecycle**: Use the injected \`browser\`. Do not launch or close it yourself.
-2. **Close what you open**: Always close pages and contexts you create to avoid leaks. **BUT**: If you reuse an existing page from \`browser.contexts()\`, do NOT close it - it belongs to another node.
+2. **Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** This allows:
+   - Downstream nodes to access the same pages
+   - Automatic screenshots to capture the current state
+   - Better performance by reusing browser sessions
+   Only close when the user instruction explicitly mentions closing, cleaning up, or finishing the page/context.
 3. **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
 4. **URL safety**: Enforce URL protocols with \`ensureUrlProtocol\`.
 5. **Return format**: The result must be an object whose keys are output letters (A, B, C...) mapped to arrays of items.
@@ -176,8 +184,9 @@ const data = {
   instanceId: playwrightSession.instanceId || null,
 };
 
-await page.close();
-await context.close();
+// Do NOT close page/context unless user explicitly asks
+// await page.close();
+// await context.close();
 
 outputs.A.push({ json: data, binary: {} });
 return outputs;

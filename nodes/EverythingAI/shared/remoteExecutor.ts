@@ -18,6 +18,7 @@ interface PlaywrightExecutionMetadata {
 	nodeName?: string;
 	keepInstance?: boolean;
 	browserInstanceId?: string;
+	autoScreenshot?: boolean;
 }
 
 // 简单的 weak mock：返回一个函数，返回对象本身（不实现真正的弱引用）

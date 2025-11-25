@@ -76,6 +76,7 @@ const service = {
 					typeof metadata.browserInstanceId === 'string' && metadata.browserInstanceId.trim() !== ''
 						? metadata.browserInstanceId.trim()
 						: undefined,
+				autoScreenshot: metadata.autoScreenshot === true,
 			};
 
 			let activeInstanceId = executionContext.requestedInstanceId;
@@ -93,21 +94,37 @@ const service = {
 					return;
 				}
 			} else {
-				console.log('Launching new Playwright browser instance...');
-				const browser = await chromium.launch({ headless: true });
-				browserRecord = {
-					browser,
-					createdAt: Date.now(),
-					workflowId: executionContext.workflowId,
-					executionId: executionContext.executionId,
-				};
-				createdNewInstance = true;
-				if (executionContext.keepInstance) {
-					activeInstanceId = randomUUID();
-					browserInstances.set(activeInstanceId, browserRecord);
-					console.log(`Created persistent browser instance ${activeInstanceId}`);
-				} else {
-					shouldCloseAfterExecution = true;
+				// Auto-find instance by workflowId and executionId
+				// This allows nodes in the same workflow execution to automatically share browser instances
+				for (const [instanceId, record] of browserInstances.entries()) {
+					if (record.workflowId === executionContext.workflowId && 
+						record.executionId === executionContext.executionId &&
+						record.browser?.isConnected()) {
+						activeInstanceId = instanceId;
+						browserRecord = record;
+						console.log(`Found existing browser instance ${activeInstanceId} for workflow ${executionContext.workflowId}, execution ${executionContext.executionId}`);
+						break;
+					}
+				}
+				
+				// If no existing instance found, create a new one
+				if (!browserRecord) {
+					console.log('Launching new Playwright browser instance...');
+					const browser = await chromium.launch({ headless: true });
+					browserRecord = {
+						browser,
+						createdAt: Date.now(),
+						workflowId: executionContext.workflowId,
+						executionId: executionContext.executionId,
+					};
+					createdNewInstance = true;
+					if (executionContext.keepInstance) {
+						activeInstanceId = randomUUID();
+						browserInstances.set(activeInstanceId, browserRecord);
+						console.log(`Created persistent browser instance ${activeInstanceId}`);
+					} else {
+						shouldCloseAfterExecution = true;
+					}
 				}
 			}
 
@@ -154,6 +171,95 @@ const service = {
 			};
 			const result = await func(safeRequire, inputs, environment);
 			console.log('Code executed successfully, result:', typeof result);
+
+			// Auto-screenshot: Take screenshots of all open pages if enabled
+			if (executionContext.autoScreenshot && browserRecord.browser && browserRecord.browser.isConnected()) {
+				try {
+					const contexts = browserRecord.browser.contexts();
+					const screenshots = [];
+					
+					for (const context of contexts) {
+						const pages = context.pages();
+						for (let i = 0; i < pages.length; i++) {
+							const page = pages[i];
+							try {
+								const buffer = await page.screenshot({ fullPage: true });
+								const base64 = buffer.toString('base64');
+								screenshots.push({
+									contextIndex: contexts.indexOf(context),
+									pageIndex: i,
+									url: page.url(),
+									data: base64,
+								});
+							} catch (screenshotError) {
+								console.error(`Failed to screenshot page ${i} in context ${contexts.indexOf(context)}:`, screenshotError);
+							}
+						}
+					}
+					
+					// Add screenshots to result if any were taken
+					if (screenshots.length > 0) {
+						if (!result || typeof result !== 'object') {
+							result = {};
+						}
+						
+						// Ensure result has output structure
+						if (!result.output1 && !result.A) {
+							result.A = [];
+						}
+						
+						const outputKey = result.A ? 'A' : 'output1';
+						if (!result[outputKey] || !Array.isArray(result[outputKey])) {
+							result[outputKey] = [];
+						}
+						
+						// Add screenshot to first output item, or create new item
+						let outputItem = result[outputKey][0];
+						if (!outputItem) {
+							outputItem = { json: {}, binary: {} };
+							result[outputKey].push(outputItem);
+						}
+						
+						if (!outputItem.binary) {
+							outputItem.binary = {};
+						}
+						
+						// Add screenshots to binary data
+						if (screenshots.length === 1) {
+							// Single screenshot: use simple key
+							outputItem.binary.screenshot = {
+								data: screenshots[0].data,
+								mimeType: 'image/png',
+								fileExtension: 'png',
+								fileName: 'screenshot.png',
+							};
+							if (outputItem.json) {
+								outputItem.json.screenshotUrl = screenshots[0].url;
+							}
+						} else {
+							// Multiple screenshots: use indexed keys
+							for (let i = 0; i < screenshots.length; i++) {
+								const screenshot = screenshots[i];
+								outputItem.binary[`screenshot_${i}`] = {
+									data: screenshot.data,
+									mimeType: 'image/png',
+									fileExtension: 'png',
+									fileName: `screenshot_${i}.png`,
+								};
+							}
+							if (outputItem.json) {
+								outputItem.json.screenshotCount = screenshots.length;
+								outputItem.json.screenshotUrls = screenshots.map(s => s.url);
+							}
+						}
+						
+						console.log(`Auto-screenshot: Captured ${screenshots.length} screenshot(s)`);
+					}
+				} catch (autoScreenshotError) {
+					console.error('Auto-screenshot failed:', autoScreenshotError);
+					// Don't fail the execution if screenshot fails
+				}
+			}
 
 			// Close browser if keepInstance is false (regardless of whether instance was reused or newly created)
 			if (!executionContext.keepInstance) {

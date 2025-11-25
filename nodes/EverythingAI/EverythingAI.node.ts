@@ -300,6 +300,19 @@ export class EverythingAI implements INodeType {
 								description:
 									'Use an existing Playwright browser instance ID returned from a previous node to reuse the same browser/session.',
 							},
+							{
+								displayName: 'Auto Screenshot',
+								name: 'playwrightAutoScreenshot',
+								type: 'boolean',
+								default: true,
+								displayOptions: {
+									show: {
+										playwright: [true],
+									},
+								},
+								description:
+									'When enabled, automatically takes a screenshot of all open pages before code execution ends and returns it as binary data. Disable to skip automatic screenshots.',
+							},
 						],
 					},
 				],
@@ -447,6 +460,7 @@ export class EverythingAI implements INodeType {
 				remoteExecutionPassword?: string;
 				playwrightKeepBrowserInstance?: boolean;
 				playwrightInstanceId?: string;
+				playwrightAutoScreenshot?: boolean;
 			};
 		};
 		const reset = advanced.reset || false;
@@ -465,6 +479,7 @@ export class EverythingAI implements INodeType {
 			password?: string;
 			keepBrowserInstance?: boolean;
 			browserInstanceId?: string;
+			autoScreenshot?: boolean;
 		} | undefined;
 		if (additionalPackages.playwright) {
 			const serverUrl = externalPackagesRaw.remoteExecutionServerUrl;
@@ -475,6 +490,7 @@ export class EverythingAI implements INodeType {
 				typeof externalPackagesRaw.playwrightInstanceId === 'string'
 					? externalPackagesRaw.playwrightInstanceId.trim()
 					: '';
+			const autoScreenshot = externalPackagesRaw.playwrightAutoScreenshot !== false; // Default to true
 			
 			if (!serverUrl || !password) {
 				throw new NodeOperationError(
@@ -488,6 +504,7 @@ export class EverythingAI implements INodeType {
 				password,
 				keepBrowserInstance,
 				browserInstanceId,
+				autoScreenshot,
 			};
 		}
 
@@ -810,6 +827,7 @@ export class EverythingAI implements INodeType {
 						remoteCredentials.browserInstanceId && remoteCredentials.browserInstanceId !== ''
 							? remoteCredentials.browserInstanceId
 							: undefined,
+					autoScreenshot: remoteCredentials.autoScreenshot === true,
 				};
 				
 				result = await executeRemote(serverUrl, password, functionBody, allInputs, metadata);
