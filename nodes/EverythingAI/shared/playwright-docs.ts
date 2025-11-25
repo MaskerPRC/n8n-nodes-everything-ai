@@ -130,9 +130,9 @@ await page.waitForNavigation();
 \`\`\`
 
 **6. Accessing Existing Pages (Reusing Pages from Previous Nodes)**
-If the user instruction mentions "current page", "existing page", or "already opened page", check for existing pages first:
+**CRITICAL**: ALWAYS check for existing pages first. Only create a new page when the user explicitly says "打开" (open), "访问" (visit), "导航到" (navigate to), etc.
 \`\`\`javascript
-// Check if there are any existing contexts and pages
+// ALWAYS check for existing pages first
 const contexts = browser.contexts();
 let page = null;
 let context = null;
@@ -147,22 +147,32 @@ for (const ctx of contexts) {
   }
 }
 
-// If no existing page found, create a new one
+// Only create new page if user explicitly says to open/navigate
+// AND no existing page found
+// Do NOT automatically navigate just because input has URL
+// Input fields are just data, not navigation instructions
 if (!page) {
-  context = await browser.newContext();
-  page = await context.newPage();
-  // Navigate to URL if needed
-  const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+  // Check if user instruction explicitly mentions navigation
+  // Keywords: "打开" (open), "访问" (visit), "导航" (navigate), "去" (go to)
+  // If user just says "点击" (click), "填写" (fill), "获取" (get), etc.,
+  // do NOT create new page - this means no existing page, so operation will fail
+  // But if user says "打开xxx页面" (open xxx page), then create new page
+  const userWantsToNavigate = true; // In real code, check user instruction
+  
+  if (userWantsToNavigate) {
+    context = await browser.newContext();
+    page = await context.newPage();
+    // Only navigate if URL is provided AND user explicitly says to open/navigate
+    // Do NOT use input URL automatically - only if user mentions it
+    const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+  }
 }
 
 // Now use the page (either existing or newly created)
-const screenshot = await page.screenshot({ fullPage: true });
-
-// Only close if we created a new context/page
-if (context && !contexts.includes(context)) {
-  await page.close();
-  await context.close();
+if (page) {
+  const screenshot = await page.screenshot({ fullPage: true });
+  // Do NOT close page/context unless user explicitly asks
 }
 \`\`\`
 
@@ -214,7 +224,10 @@ return outputs;
    - Automatic screenshots to capture the current state
    - Better performance by reusing browser sessions
    Only close when the user instruction explicitly mentions closing, cleaning up, or finishing the page/context.
-8. **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
+8. **CRITICAL - Use existing pages by default**: **ALWAYS check for existing pages first before creating new ones.** Only create a new page/context when the user explicitly says "打开" (open), "访问" (visit), "导航到" (navigate to), "去" (go to), or similar navigation commands. If the user just says "点击" (click), "填写" (fill), "获取" (get), etc. without mentioning navigation, use the existing page from the current execution.
+   - **Input fields do NOT mean navigation**: Do NOT automatically use input field URLs for navigation unless the user explicitly mentions it in their prompt. Input fields are just data, not navigation instructions.
+   - **Default behavior**: If user doesn't say "打开xxx页面" (open xxx page), work on the current page in the current execution's browser context.
+   - **Example**: If user says "点击提交按钮" (click submit button), do NOT create a new page or navigate. Just find the existing page and click the button.
 9. **URL safety**: Enforce URL protocols with \`ensureUrlProtocol\`.
 10. **Return format**: The result must be an object whose keys are output letters (A, B, C...) mapped to arrays of items.
 11. **Session reuse**: If \`playwrightSession.instanceId\` is set, include it in your output. Downstream nodes can feed it back in to reuse the same browser.

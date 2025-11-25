@@ -168,14 +168,16 @@ Output data structure:
     ${additionalPackages?.playwright ? `
     - **Browser Automation**: \`playwright\` - Modern browser automation library for web scraping, testing, and automation.
       - **Browser lifecycle is managed for you**: A \`browser\` object is injected. **Do NOT call \`chromium.launch()\` or \`browser.close()\`.**
-      - **Create contexts & pages**: Create a context/page (\`const context = await browser.newContext(); const page = await context.newPage();\`) when needed.
+      - **CRITICAL - Use existing pages by default**: **ALWAYS check for existing pages first before creating new ones.** Only create a new page/context when the user explicitly says "打开" (open), "访问" (visit), "导航到" (navigate to), "去" (go to), or similar navigation commands. If the user just says "点击" (click), "填写" (fill), "获取" (get), etc. without mentioning navigation, use the existing page from the current execution.
+      - **CRITICAL - Input fields do NOT mean navigation**: Do NOT automatically use input field URLs for navigation unless the user explicitly mentions it in their prompt. Input fields are just data, not navigation instructions. For example, if user says "点击提交按钮" (click submit button), do NOT create a new page or navigate to an input URL. Just find the existing page and click the button.
+      - **Create contexts & pages**: Only create a context/page (\`const context = await browser.newContext(); const page = await context.newPage();\`) when the user explicitly asks to open/navigate to a new page.
       - **IMPORTANT - Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** Keeping pages open allows:
         - Downstream nodes to access the same pages
         - Automatic screenshots to capture the current state
         - Better performance by reusing browser sessions
       - **Only close when explicitly requested**: Only call \`await page.close()\` or \`await context.close()\` if the user instruction explicitly mentions closing, cleaning up, or finishing the page/context.
       - **Session metadata**: A \`playwrightSession\` object is available (contains \`instanceId\`, \`workflowId\`, \`executionId\`, etc.). Include \`playwrightSession.instanceId\` in your output if it's present.
-      - **CRITICAL - URL Protocol Handling**: For any URL coming from inputs or user data, ensure it includes \`http://\` or \`https://\`. Example helper: \`function ensureUrlProtocol(url) { if (!url.startsWith('http://') && !url.startsWith('https://')) return 'https://' + url; return url; }\` — always run \`page.goto(ensureUrlProtocol(url))\`.
+      - **CRITICAL - URL Protocol Handling**: For any URL coming from inputs or user data, ensure it includes \`http://\` or \`https://\`. Example helper: \`function ensureUrlProtocol(url) { if (!url.startsWith('http://') && !url.startsWith('https://')) return 'https://' + url; return url; }\` — always run \`page.goto(ensureUrlProtocol(url))\`. **BUT only use this when user explicitly says to open/navigate to a URL.**
       - **CRITICAL - Default Timeout is 5 seconds (5000ms)**: All Playwright operations must use \`{ timeout: 5000 }\` as the default timeout unless the user explicitly specifies a different timeout in their requirements. Examples:
         - \`await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 })\`
         - \`await page.click('selector', { timeout: 5000 })\`
@@ -203,12 +205,33 @@ Output data structure:
         ]);
         \`\`\`
         This prevents the code from hanging if the request never completes or navigation never happens.
-      - **Typical workflow**:
+      - **Typical workflow - ALWAYS check for existing pages first**:
         \`\`\`javascript
-        const context = await browser.newContext();
-        const page = await context.newPage();
-        const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+        // ALWAYS check for existing pages first
+        const contexts = browser.contexts();
+        let page = null;
+        let context = null;
+        
+        // Try to find an existing page
+        for (const ctx of contexts) {
+          const pages = ctx.pages();
+          if (pages.length > 0) {
+            page = pages[0];
+            context = ctx;
+            break;
+          }
+        }
+        
+        // Only create new page if user explicitly says to open/navigate
+        // AND no existing page found
+        if (!page && (userInstruction.includes('打开') || userInstruction.includes('访问') || userInstruction.includes('导航'))) {
+          context = await browser.newContext();
+          page = await context.newPage();
+          const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+        }
+        
+        // Now use the page (either existing or newly created)
         const title = await page.title();
         // Do NOT close page/context unless user explicitly asks
         // await page.close();
@@ -429,15 +452,38 @@ function ensureUrlProtocol(url) {
 }
 
 // Use async/await to automate browser
-if ($input.length > 0) {
-  const context = await browser.newContext();
+// ALWAYS check for existing pages first
+const contexts = browser.contexts();
+let page = null;
+let context = null;
+
+// Try to find an existing page
+for (const ctx of contexts) {
+  const pages = ctx.pages();
+  if (pages.length > 0) {
+    page = pages[0];
+    context = ctx;
+    break;
+  }
+}
+
+// Only create new page if user explicitly says to open/navigate
+// AND no existing page found
+// NOTE: In actual code, check the user instruction for navigation keywords
+// like "打开" (open), "访问" (visit), "导航" (navigate), "去" (go to)
+// If user just says "点击" (click), "填写" (fill), "获取" (get), etc.,
+// use the existing page, do NOT create new page or navigate
+if (!page) {
+  // Only create new page if user explicitly wants to navigate
+  // This is just an example - in real code, check user instruction
+  context = await browser.newContext();
+  page = await context.newPage();
+  // Only navigate if URL is provided AND user explicitly says to open/navigate
+  // Do NOT automatically navigate just because input has URL
+}
+
+if (page) {
   try {
-    const page = await context.newPage();
-    
-    // Navigate to URL (example: get URL from input data)
-    const rawUrl = $input[0].json.url || 'example.com';
-    const url = ensureUrlProtocol(rawUrl);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
     
     // Extract data from page
     const title = await page.title();
@@ -457,15 +503,15 @@ if ($input.length > 0) {
       binary: {}
     });
     
-    await page.close();
+    // Do NOT close page/context unless user explicitly asks
+    // await page.close();
+    // await context.close();
   } catch (error) {
     // Handle errors
     outputs['A'].push({
       json: { error: error.message },
       binary: {}
     });
-  } finally {
-    await context.close();
   }
 }
 
