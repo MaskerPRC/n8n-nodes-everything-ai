@@ -91,6 +91,20 @@ ${securityWarning}
 ## User Instruction
 ${instruction}
 
+## CRITICAL: Return Data When User Asks to "Get" Content
+**IMPORTANT**: When the user instruction contains phrases like:
+- "获取" (get), "获取xxx内容" (get xxx content), "获取数据" (get data)
+- "提取" (extract), "读取" (read), "抓取" (scrape)
+- "返回" (return), "输出" (output), "显示" (display)
+- "获取xxx" (get xxx), "提取xxx" (extract xxx), "读取xxx" (read xxx)
+
+You **MUST** return that data in the output. The user is explicitly asking you to retrieve and return data, so always include it in the output object. For example:
+- If user says "获取页面标题" (get page title), you must return the title in outputs
+- If user says "提取所有链接" (extract all links), you must return the links in outputs
+- If user says "获取剪切板内容" (get clipboard content), you must return the clipboard text in outputs
+
+**Never forget to return data when user explicitly asks to "get" or "extract" something.**
+
 ## Data Structure Description (Important!)
 In n8n, the structure of a data item is:
 \`\`\`javascript
@@ -210,6 +224,31 @@ Output data structure:
         - Wait for load state: \`await page.waitForLoadState('networkidle', { timeout: 5000 })\`
         - Click and wait for response: \`await Promise.all([page.waitForResponse(...), page.click(...)])\`
         - Screenshots: \`await page.screenshot({ path: 'screenshot.png', fullPage: true })\`
+      - **Clipboard operations** (copy/paste):
+        - **CRITICAL**: Clipboard is shared within the same browser context. To use clipboard across nodes:
+          1. Grant clipboard permissions: \`await context.grantPermissions(['clipboard-read', 'clipboard-write'])\`
+          2. Use browser clipboard API: \`await page.evaluate(() => navigator.clipboard.readText())\`
+          3. Ensure both nodes use the same context (keepContext=true) to share clipboard
+        - Example: Click copy button and read clipboard:
+          \`\`\`javascript
+          // Grant permissions first
+          await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+          
+          // Click copy button
+          await page.click('button#copy', { timeout: 5000 });
+          
+          // Wait a moment for clipboard to update
+          await page.waitForTimeout(100);
+          
+          // Read clipboard using browser API
+          const clipboardText = await page.evaluate(async () => {
+            return await navigator.clipboard.readText();
+          });
+          
+          // Return clipboard content in output
+          outputs.A.push({ json: { clipboardText }, binary: {} });
+          \`\`\`
+        - **IMPORTANT**: If you click copy in one node and read clipboard in the next node, both must use the same context (keepContext=true), otherwise clipboard won't be shared.
       - **Return n8n format**: Always return an object such as \`{ A: [ { json: { ... } } ] }\`. Include the instance ID if available so downstream nodes can reuse the browser.
     ` : ''}
    - Examples: 

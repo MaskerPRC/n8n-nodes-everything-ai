@@ -62,6 +62,32 @@ const links = await page.$$eval('a', elements =>
 );
 \`\`\`
 
+**2.1. Clipboard Operations (Copy/Paste)**
+When working with clipboard, you need to grant permissions and use the browser's clipboard API:
+\`\`\`javascript
+// Grant clipboard permissions to the context
+await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+// Click copy button
+await page.click('button#copy', { timeout: 5000 });
+
+// Wait a moment for clipboard to be updated
+await page.waitForTimeout(100);
+
+// Read clipboard content using browser API
+const clipboardText = await page.evaluate(async () => {
+  return await navigator.clipboard.readText();
+});
+
+// Use the clipboard content
+console.log('Copied text:', clipboardText);
+\`\`\`
+
+**IMPORTANT**: Clipboard is shared within the same browser context. If you click copy in one node and want to read clipboard in the next node, make sure:
+1. Both nodes use the same context (keepContext=true)
+2. Grant clipboard permissions: \`await context.grantPermissions(['clipboard-read', 'clipboard-write'])\`
+3. Use \`page.evaluate(() => navigator.clipboard.readText())\` to read clipboard, not system clipboard APIs
+
 **3. Screenshots & Waiting**
 \`\`\`javascript
 await page.waitForSelector('.content', { timeout: 5000 });
@@ -178,16 +204,21 @@ return outputs;
 2. **Default timeout is 5 seconds (5000ms)**: All Playwright operations (goto, click, fill, waitForSelector, waitForResponse, waitForNavigation, etc.) should use \`{ timeout: 5000 }\` as the default timeout unless the user explicitly specifies a different timeout in their requirements. Only use longer timeouts if the user explicitly requests them (e.g., "wait 30 seconds", "timeout 10 seconds").
 3. **CRITICAL - All waiting operations MUST have timeout**: Every waiting operation (waitForSelector, waitForResponse, waitForNavigation, waitForLoadState) MUST include an explicit timeout parameter. Never use waiting operations without timeout as they can hang indefinitely. Default timeout is 5 seconds (5000ms) for short waits, unless user explicitly requests a longer wait time.
 4. **Waiting for network requests after clicks**: When clicking buttons that trigger network requests, always use Promise.all() to wait for the response with timeout: \`await Promise.all([page.waitForResponse(...), page.click(...)])\`. This prevents hanging if the request never completes.
-5. **Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** This allows:
+5. **CRITICAL - Return data when user asks to "get" or "fetch" content**: When the user instruction contains phrases like "获取" (get), "获取xxx内容" (get xxx content), "提取" (extract), "读取" (read), "获取数据" (get data), "返回" (return), etc., you MUST return that data in the output. The user is explicitly asking you to retrieve and return data, so always include it in the output object (e.g., \`outputs.A.push({ json: { content: ... } })\`).
+6. **Clipboard operations**: When working with clipboard (copy/paste), you must:
+   - Grant clipboard permissions: \`await context.grantPermissions(['clipboard-read', 'clipboard-write'])\`
+   - Use browser clipboard API: \`await page.evaluate(() => navigator.clipboard.readText())\`
+   - Clipboard is shared within the same browser context, so if you copy in one node and read in the next, ensure both use the same context (keepContext=true)
+7. **Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** This allows:
    - Downstream nodes to access the same pages
    - Automatic screenshots to capture the current state
    - Better performance by reusing browser sessions
    Only close when the user instruction explicitly mentions closing, cleaning up, or finishing the page/context.
-6. **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
-7. **URL safety**: Enforce URL protocols with \`ensureUrlProtocol\`.
-8. **Return format**: The result must be an object whose keys are output letters (A, B, C...) mapped to arrays of items.
-9. **Session reuse**: If \`playwrightSession.instanceId\` is set, include it in your output. Downstream nodes can feed it back in to reuse the same browser.
-10. **Remote execution**: Code runs inside a Docker container; file paths are relative to that container.
+8. **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
+9. **URL safety**: Enforce URL protocols with \`ensureUrlProtocol\`.
+10. **Return format**: The result must be an object whose keys are output letters (A, B, C...) mapped to arrays of items.
+11. **Session reuse**: If \`playwrightSession.instanceId\` is set, include it in your output. Downstream nodes can feed it back in to reuse the same browser.
+12. **Remote execution**: Code runs inside a Docker container; file paths are relative to that container.
 
 ### Example: Scrape a Website
 
@@ -300,5 +331,88 @@ const result = {
 outputs.A.push({ json: result, binary: {} });
 return outputs;
 \`\`\`
+
+### Example: Copy to Clipboard and Read in Next Node
+
+**Node 1: Click Copy Button**
+\`\`\`javascript
+const outputs = { A: [] };
+
+// Find or create context (keepContext=true to share clipboard)
+const contexts = browser.contexts();
+let context = contexts.length > 0 ? contexts[0] : await browser.newContext();
+let page = context.pages().length > 0 ? context.pages()[0] : await context.newPage();
+
+// Grant clipboard permissions
+await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+// Navigate if needed
+const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
+if (page.url() !== url) {
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+}
+
+// Click copy button
+await page.click('button#copy', { timeout: 5000 });
+
+// Wait for clipboard to update
+await page.waitForTimeout(100);
+
+outputs.A.push({ 
+  json: { 
+    message: 'Copy button clicked',
+    instanceId: playwrightSession.instanceId || null 
+  }, 
+  binary: {} 
+});
+return outputs;
+\`\`\`
+
+**Node 2: Read Clipboard Content**
+\`\`\`javascript
+const outputs = { A: [] };
+
+// Use the same context (keepContext=true ensures same context)
+const contexts = browser.contexts();
+if (contexts.length === 0) {
+  throw new Error('No context found. Make sure keepContext=true in previous node.');
+}
+
+const context = contexts[0];
+const pages = context.pages();
+if (pages.length === 0) {
+  throw new Error('No page found. Make sure keepPage=true in previous node.');
+}
+
+const page = pages[0];
+
+// Grant clipboard permissions (if not already granted)
+await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+// Read clipboard using browser API
+const clipboardText = await page.evaluate(async () => {
+  try {
+    return await navigator.clipboard.readText();
+  } catch (error) {
+    throw new Error('Failed to read clipboard: ' + error.message);
+  }
+});
+
+// Return clipboard content
+outputs.A.push({ 
+  json: { 
+    clipboardText,
+    instanceId: playwrightSession.instanceId || null 
+  }, 
+  binary: {} 
+});
+return outputs;
+\`\`\`
+
+**IMPORTANT**: For clipboard to work across nodes:
+1. Both nodes must have \`keepContext=true\` (or \`keepPage=true\` which includes keepContext)
+2. Grant clipboard permissions: \`await context.grantPermissions(['clipboard-read', 'clipboard-write'])\`
+3. Use browser clipboard API: \`await page.evaluate(() => navigator.clipboard.readText())\`
+4. Wait a moment after clicking copy: \`await page.waitForTimeout(100)\`
 `;
 
