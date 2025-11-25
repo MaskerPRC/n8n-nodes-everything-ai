@@ -168,6 +168,27 @@ Output data structure:
         - \`await page.fill('input[name="email"]', 'value', { timeout: 5000 })\`
         - \`await page.waitForSelector('.content', { timeout: 5000 })\`
         Only use longer timeouts (e.g., 10000, 30000) if the user explicitly requests them in their requirements (e.g., "wait 30 seconds", "timeout 10 seconds", "wait up to 20 seconds").
+      - **CRITICAL - All waiting operations MUST have timeout**: Every waiting operation MUST include an explicit timeout parameter to prevent hanging. This includes:
+        - \`waitForSelector\`: \`await page.waitForSelector('.content', { timeout: 5000 })\`
+        - \`waitForResponse\`: \`await page.waitForResponse(response => response.url().includes('/api'), { timeout: 5000 })\`
+        - \`waitForNavigation\`: \`await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 5000 })\`
+        - \`waitForLoadState\`: \`await page.waitForLoadState('networkidle', { timeout: 5000 })\`
+        **Never use waiting operations without timeout** - they can hang indefinitely if the condition is never met.
+      - **Waiting for network requests after clicks**: When clicking buttons that trigger network requests or page navigation, always use Promise.all() to wait for the response/navigation with timeout:
+        \`\`\`javascript
+        // Click button and wait for response
+        const [response] = await Promise.all([
+          page.waitForResponse(response => response.url().includes('/api/data'), { timeout: 5000 }),
+          page.click('button#submit', { timeout: 5000 })
+        ]);
+        
+        // Or wait for navigation
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'networkidle', timeout: 5000 }),
+          page.click('button#submit', { timeout: 5000 })
+        ]);
+        \`\`\`
+        This prevents the code from hanging if the request never completes or navigation never happens.
       - **Typical workflow**:
         \`\`\`javascript
         const context = await browser.newContext();
@@ -183,7 +204,11 @@ Output data structure:
         - Navigate: \`await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 })\` (after protocol check)
         - Click/Fill: \`await page.click('selector', { timeout: 5000 })\`, \`await page.fill('input[name="email"]', 'value', { timeout: 5000 })\`
         - Extract data: \`await page.textContent('selector')\`, \`await page.$$eval('a', els => ...)\`
-        - Wait: \`await page.waitForSelector('.content', { timeout: 5000 })\`
+        - Wait for element: \`await page.waitForSelector('.content', { timeout: 5000 })\`
+        - Wait for response: \`await page.waitForResponse(response => response.status() === 200, { timeout: 5000 })\`
+        - Wait for navigation: \`await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 5000 })\`
+        - Wait for load state: \`await page.waitForLoadState('networkidle', { timeout: 5000 })\`
+        - Click and wait for response: \`await Promise.all([page.waitForResponse(...), page.click(...)])\`
         - Screenshots: \`await page.screenshot({ path: 'screenshot.png', fullPage: true })\`
       - **Return n8n format**: Always return an object such as \`{ A: [ { json: { ... } } ] }\`. Include the instance ID if available so downstream nodes can reuse the browser.
     ` : ''}

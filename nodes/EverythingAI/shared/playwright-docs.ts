@@ -68,7 +68,42 @@ await page.waitForSelector('.content', { timeout: 5000 });
 await page.screenshot({ path: 'fullpage.png', fullPage: true });
 \`\`\`
 
-**4. Accessing Existing Pages (Reusing Pages from Previous Nodes)**
+**4. Waiting for Network Requests (After Clicking Buttons)**
+When clicking a button that triggers a network request, always wait for the response with an explicit timeout:
+\`\`\`javascript
+// Click button and wait for the response
+const [response] = await Promise.all([
+  page.waitForResponse(response => response.url().includes('/api/data'), { timeout: 5000 }),
+  page.click('button#submit', { timeout: 5000 })
+]);
+
+// Or wait for navigation after click
+await Promise.all([
+  page.waitForNavigation({ waitUntil: 'networkidle', timeout: 5000 }),
+  page.click('button#submit', { timeout: 5000 })
+]);
+
+// Or wait for load state
+await page.click('button#submit', { timeout: 5000 });
+await page.waitForLoadState('networkidle', { timeout: 5000 });
+\`\`\`
+
+**5. All Waiting Operations Must Have Timeout**
+**CRITICAL**: All waiting operations MUST have an explicit timeout to avoid hanging. Default is 5 seconds (5000ms) unless user explicitly specifies otherwise:
+\`\`\`javascript
+// ✅ CORRECT - Always set timeout
+await page.waitForSelector('.content', { timeout: 5000 });
+await page.waitForResponse(response => response.status() === 200, { timeout: 5000 });
+await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 5000 });
+await page.waitForLoadState('networkidle', { timeout: 5000 });
+
+// ❌ WRONG - Missing timeout (will hang if element never appears)
+await page.waitForSelector('.content');
+await page.waitForResponse(response => response.status() === 200);
+await page.waitForNavigation();
+\`\`\`
+
+**6. Accessing Existing Pages (Reusing Pages from Previous Nodes)**
 If the user instruction mentions "current page", "existing page", or "already opened page", check for existing pages first:
 \`\`\`javascript
 // Check if there are any existing contexts and pages
@@ -140,17 +175,19 @@ return outputs;
 ### Important Rules
 
 1. **Browser lifecycle**: Use the injected \`browser\`. Do not launch or close it yourself.
-2. **Default timeout is 5 seconds (5000ms)**: All Playwright operations (goto, click, fill, waitForSelector, etc.) should use \`{ timeout: 5000 }\` as the default timeout unless the user explicitly specifies a different timeout in their requirements. Only use longer timeouts if the user explicitly requests them (e.g., "wait 30 seconds", "timeout 10 seconds").
-3. **Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** This allows:
+2. **Default timeout is 5 seconds (5000ms)**: All Playwright operations (goto, click, fill, waitForSelector, waitForResponse, waitForNavigation, etc.) should use \`{ timeout: 5000 }\` as the default timeout unless the user explicitly specifies a different timeout in their requirements. Only use longer timeouts if the user explicitly requests them (e.g., "wait 30 seconds", "timeout 10 seconds").
+3. **CRITICAL - All waiting operations MUST have timeout**: Every waiting operation (waitForSelector, waitForResponse, waitForNavigation, waitForLoadState) MUST include an explicit timeout parameter. Never use waiting operations without timeout as they can hang indefinitely. Default timeout is 5 seconds (5000ms) for short waits, unless user explicitly requests a longer wait time.
+4. **Waiting for network requests after clicks**: When clicking buttons that trigger network requests, always use Promise.all() to wait for the response with timeout: \`await Promise.all([page.waitForResponse(...), page.click(...)])\`. This prevents hanging if the request never completes.
+5. **Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** This allows:
    - Downstream nodes to access the same pages
    - Automatic screenshots to capture the current state
    - Better performance by reusing browser sessions
    Only close when the user instruction explicitly mentions closing, cleaning up, or finishing the page/context.
-4. **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
-5. **URL safety**: Enforce URL protocols with \`ensureUrlProtocol\`.
-6. **Return format**: The result must be an object whose keys are output letters (A, B, C...) mapped to arrays of items.
-7. **Session reuse**: If \`playwrightSession.instanceId\` is set, include it in your output. Downstream nodes can feed it back in to reuse the same browser.
-8. **Remote execution**: Code runs inside a Docker container; file paths are relative to that container.
+6. **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
+7. **URL safety**: Enforce URL protocols with \`ensureUrlProtocol\`.
+8. **Return format**: The result must be an object whose keys are output letters (A, B, C...) mapped to arrays of items.
+9. **Session reuse**: If \`playwrightSession.instanceId\` is set, include it in your output. Downstream nodes can feed it back in to reuse the same browser.
+10. **Remote execution**: Code runs inside a Docker container; file paths are relative to that container.
 
 ### Example: Scrape a Website
 
@@ -171,7 +208,7 @@ const page = await context.newPage();
 
 const rawUrl = inputs[0]?.[0]?.json?.url || 'example.com';
 const url = ensureUrlProtocol(rawUrl);
-await page.goto(url);
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
 
 const data = {
   url,
@@ -190,6 +227,77 @@ const data = {
 // await context.close();
 
 outputs.A.push({ json: data, binary: {} });
+return outputs;
+\`\`\`
+
+### Example: Click Button and Wait for Response
+
+\`\`\`javascript
+const outputs = { A: [] };
+
+const context = await browser.newContext();
+const page = await context.newPage();
+
+const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+
+// Click button and wait for the API response
+const [response] = await Promise.all([
+  page.waitForResponse(response => 
+    response.url().includes('/api/submit') && response.status() === 200, 
+    { timeout: 5000 }
+  ),
+  page.click('button#submit', { timeout: 5000 })
+]);
+
+// Get response data
+const responseData = await response.json();
+
+// Wait for element to appear after response
+await page.waitForSelector('.success-message', { timeout: 5000 });
+
+const result = {
+  success: true,
+  responseData,
+  message: await page.textContent('.success-message'),
+  instanceId: playwrightSession.instanceId || null,
+};
+
+outputs.A.push({ json: result, binary: {} });
+return outputs;
+\`\`\`
+
+### Example: Fill Form, Submit, and Wait for Navigation
+
+\`\`\`javascript
+const outputs = { A: [] };
+
+const context = await browser.newContext();
+const page = await context.newPage();
+
+const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+
+// Fill form fields
+await page.fill('input[name="email"]', 'user@example.com', { timeout: 5000 });
+await page.fill('input[name="password"]', 'password123', { timeout: 5000 });
+
+// Submit and wait for navigation
+await Promise.all([
+  page.waitForNavigation({ waitUntil: 'networkidle', timeout: 5000 }),
+  page.click('button[type="submit"]', { timeout: 5000 })
+]);
+
+// Wait for page to fully load
+await page.waitForLoadState('networkidle', { timeout: 5000 });
+
+const result = {
+  url: page.url(),
+  title: await page.title(),
+  instanceId: playwrightSession.instanceId || null,
+};
+
+outputs.A.push({ json: result, binary: {} });
 return outputs;
 \`\`\`
 `;
