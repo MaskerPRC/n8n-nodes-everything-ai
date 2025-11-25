@@ -162,22 +162,28 @@ Output data structure:
       - **Only close when explicitly requested**: Only call \`await page.close()\` or \`await context.close()\` if the user instruction explicitly mentions closing, cleaning up, or finishing the page/context.
       - **Session metadata**: A \`playwrightSession\` object is available (contains \`instanceId\`, \`workflowId\`, \`executionId\`, etc.). Include \`playwrightSession.instanceId\` in your output if it's present.
       - **CRITICAL - URL Protocol Handling**: For any URL coming from inputs or user data, ensure it includes \`http://\` or \`https://\`. Example helper: \`function ensureUrlProtocol(url) { if (!url.startsWith('http://') && !url.startsWith('https://')) return 'https://' + url; return url; }\` — always run \`page.goto(ensureUrlProtocol(url))\`.
+      - **CRITICAL - Default Timeout is 5 seconds (5000ms)**: All Playwright operations must use \`{ timeout: 5000 }\` as the default timeout unless the user explicitly specifies a different timeout in their requirements. Examples:
+        - \`await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 })\`
+        - \`await page.click('selector', { timeout: 5000 })\`
+        - \`await page.fill('input[name="email"]', 'value', { timeout: 5000 })\`
+        - \`await page.waitForSelector('.content', { timeout: 5000 })\`
+        Only use longer timeouts (e.g., 10000, 30000) if the user explicitly requests them in their requirements (e.g., "wait 30 seconds", "timeout 10 seconds", "wait up to 20 seconds").
       - **Typical workflow**:
         \`\`\`javascript
         const context = await browser.newContext();
         const page = await context.newPage();
         const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
-        await page.goto(url);
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
         const title = await page.title();
         // Do NOT close page/context unless user explicitly asks
         // await page.close();
         // await context.close();
         \`\`\`
-      - **Common operations**:
-        - Navigate: \`await page.goto(url)\` (after protocol check)
-        - Click/Fill: \`await page.click('selector')\`, \`await page.fill('input[name="email"]', 'value')\`
+      - **Common operations** (all with default 5s timeout):
+        - Navigate: \`await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 })\` (after protocol check)
+        - Click/Fill: \`await page.click('selector', { timeout: 5000 })\`, \`await page.fill('input[name="email"]', 'value', { timeout: 5000 })\`
         - Extract data: \`await page.textContent('selector')\`, \`await page.$$eval('a', els => ...)\`
-        - Wait: \`await page.waitForSelector('.content')\`
+        - Wait: \`await page.waitForSelector('.content', { timeout: 5000 })\`
         - Screenshots: \`await page.screenshot({ path: 'screenshot.png', fullPage: true })\`
       - **Return n8n format**: Always return an object such as \`{ A: [ { json: { ... } } ] }\`. Include the instance ID if available so downstream nodes can reuse the browser.
     ` : ''}
@@ -367,7 +373,7 @@ if ($input.length > 0) {
     // Navigate to URL (example: get URL from input data)
     const rawUrl = $input[0].json.url || 'example.com';
     const url = ensureUrlProtocol(rawUrl);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
     
     // Extract data from page
     const title = await page.title();
@@ -442,7 +448,7 @@ if (!page) {
   const $input = inputs[0] || [];
   if ($input.length > 0 && $input[0].json && $input[0].json.url) {
     const url = ensureUrlProtocol($input[0].json.url);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
   }
 }
 

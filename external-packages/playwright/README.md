@@ -26,8 +26,8 @@ In your Everything AI node settings:
   - If N8N is running locally: `tcp://localhost:5004`
   - If N8N is on a remote server: `tcp://your-server-ip:5004`
 - **Remote Execution Password**: Enter the password you set when running the container
-- **Keep Browser Instance** (optional): Enable to keep the browser session alive after execution.
-- **Browser Instance ID** (optional): If you want to reuse an existing browser session, paste the `__playwrightInstanceId` returned from a previous node here.
+- **Keep Context** (optional): Enable to keep the browser context (cookies, localStorage, etc.) alive after execution. This allows maintaining login sessions across nodes.
+- **Keep Page** (optional): Enable to keep pages open after execution. This also enables Keep Context automatically. When disabled but Keep Context is enabled, pages will be closed but the context will be preserved.
 
 ## Image Variants
 

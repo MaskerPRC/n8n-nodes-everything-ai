@@ -41,7 +41,7 @@ const context = await browser.newContext();
 const page = await context.newPage();
 
 const url = ensureUrlProtocol('example.com');
-await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
 
 const html = await page.content();
 const title = await page.title();
@@ -54,8 +54,8 @@ const title = await page.title();
 
 **2. Click / Fill / Extract**
 \`\`\`javascript
-await page.click('text=Submit');
-await page.fill('input[name="email"]', 'user@example.com');
+await page.click('text=Submit', { timeout: 5000 });
+await page.fill('input[name="email"]', 'user@example.com', { timeout: 5000 });
 
 const links = await page.$$eval('a', elements =>
   elements.map(el => ({ text: el.textContent?.trim(), href: el.href }))
@@ -64,7 +64,7 @@ const links = await page.$$eval('a', elements =>
 
 **3. Screenshots & Waiting**
 \`\`\`javascript
-await page.waitForSelector('.content');
+await page.waitForSelector('.content', { timeout: 5000 });
 await page.screenshot({ path: 'fullpage.png', fullPage: true });
 \`\`\`
 
@@ -92,7 +92,7 @@ if (!page) {
   page = await context.newPage();
   // Navigate to URL if needed
   const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
 }
 
 // Now use the page (either existing or newly created)
@@ -116,7 +116,7 @@ const context = await browser.newContext();
 const page = await context.newPage();
 
 const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
-await page.goto(url);
+await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
 
 const title = await page.title();
 
@@ -140,16 +140,17 @@ return outputs;
 ### Important Rules
 
 1. **Browser lifecycle**: Use the injected \`browser\`. Do not launch or close it yourself.
-2. **Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** This allows:
+2. **Default timeout is 5 seconds (5000ms)**: All Playwright operations (goto, click, fill, waitForSelector, etc.) should use \`{ timeout: 5000 }\` as the default timeout unless the user explicitly specifies a different timeout in their requirements. Only use longer timeouts if the user explicitly requests them (e.g., "wait 30 seconds", "timeout 10 seconds").
+3. **Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** This allows:
    - Downstream nodes to access the same pages
    - Automatic screenshots to capture the current state
    - Better performance by reusing browser sessions
    Only close when the user instruction explicitly mentions closing, cleaning up, or finishing the page/context.
-3. **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
-4. **URL safety**: Enforce URL protocols with \`ensureUrlProtocol\`.
-5. **Return format**: The result must be an object whose keys are output letters (A, B, C...) mapped to arrays of items.
-6. **Session reuse**: If \`playwrightSession.instanceId\` is set, include it in your output. Downstream nodes can feed it back in to reuse the same browser.
-7. **Remote execution**: Code runs inside a Docker container; file paths are relative to that container.
+4. **Accessing existing pages**: If user instruction mentions "current page", "existing page", "already opened page", or "now" (e.g., "screenshot the current page"), first check \`browser.contexts()\` and \`context.pages()\` to find existing pages before creating new ones.
+5. **URL safety**: Enforce URL protocols with \`ensureUrlProtocol\`.
+6. **Return format**: The result must be an object whose keys are output letters (A, B, C...) mapped to arrays of items.
+7. **Session reuse**: If \`playwrightSession.instanceId\` is set, include it in your output. Downstream nodes can feed it back in to reuse the same browser.
+8. **Remote execution**: Code runs inside a Docker container; file paths are relative to that container.
 
 ### Example: Scrape a Website
 
