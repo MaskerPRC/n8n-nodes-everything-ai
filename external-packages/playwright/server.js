@@ -23,6 +23,7 @@ const PORT = process.env.PORT || 5004;
 const PASSWORD = process.env.PASSWORD || 'default-password-change-me';
 
 // Store active browser instances (for cleanup on shutdown)
+// Each instance contains: browser, contexts (if keepContext), pages (if keepPage)
 const browserInstances = new Map();
 
 function cleanupBrowserInstance(instanceId, reason) {
@@ -65,66 +66,58 @@ const service = {
 
 		console.log('Execute called with code length:', code.length);
 		try {
+			// keepPage defaults to keepContext (if keepPage is true, keepContext is also true)
+			const keepPage = metadata.keepPage === true;
+			const keepContext = metadata.keepContext === true || keepPage;
+			
 			const executionContext = {
 				workflowId: metadata.workflowId || 'unknown-workflow',
 				workflowName: metadata.workflowName || '',
 				executionId: metadata.executionId || randomUUID(),
 				nodeId: metadata.nodeId || '',
 				nodeName: metadata.nodeName || '',
-				keepInstance: metadata.keepInstance === true,
-				requestedInstanceId:
-					typeof metadata.browserInstanceId === 'string' && metadata.browserInstanceId.trim() !== ''
-						? metadata.browserInstanceId.trim()
-						: undefined,
+				keepContext: keepContext,
+				keepPage: keepPage,
 				autoScreenshot: metadata.autoScreenshot === true,
 			};
 
-			let activeInstanceId = executionContext.requestedInstanceId;
-			let browserRecord;
+			let activeInstanceId = null;
+			let browserRecord = null;
 			let createdNewInstance = false;
 			let shouldCloseAfterExecution = false;
 
-			if (activeInstanceId) {
-				browserRecord = browserInstances.get(activeInstanceId);
-				if (!browserRecord || !browserRecord.browser?.isConnected()) {
-					if (browserRecord) {
-						browserInstances.delete(activeInstanceId);
-					}
-					callback(`Browser instance '${activeInstanceId}' not found or already closed`, null);
-					return;
+			// Auto-find instance by workflowId and executionId
+			// This allows nodes in the same workflow execution to automatically share browser instances
+			for (const [instanceId, record] of browserInstances.entries()) {
+				if (record.workflowId === executionContext.workflowId && 
+					record.executionId === executionContext.executionId &&
+					record.browser?.isConnected()) {
+					activeInstanceId = instanceId;
+					browserRecord = record;
+					console.log(`Found existing browser instance ${activeInstanceId} for workflow ${executionContext.workflowId}, execution ${executionContext.executionId}`);
+					break;
 				}
-			} else {
-				// Auto-find instance by workflowId and executionId
-				// This allows nodes in the same workflow execution to automatically share browser instances
-				for (const [instanceId, record] of browserInstances.entries()) {
-					if (record.workflowId === executionContext.workflowId && 
-						record.executionId === executionContext.executionId &&
-						record.browser?.isConnected()) {
-						activeInstanceId = instanceId;
-						browserRecord = record;
-						console.log(`Found existing browser instance ${activeInstanceId} for workflow ${executionContext.workflowId}, execution ${executionContext.executionId}`);
-						break;
-					}
-				}
-				
-				// If no existing instance found, create a new one
-				if (!browserRecord) {
-					console.log('Launching new Playwright browser instance...');
-					const browser = await chromium.launch({ headless: true });
-					browserRecord = {
-						browser,
-						createdAt: Date.now(),
-						workflowId: executionContext.workflowId,
-						executionId: executionContext.executionId,
-					};
-					createdNewInstance = true;
-					if (executionContext.keepInstance) {
-						activeInstanceId = randomUUID();
-						browserInstances.set(activeInstanceId, browserRecord);
-						console.log(`Created persistent browser instance ${activeInstanceId}`);
-					} else {
-						shouldCloseAfterExecution = true;
-					}
+			}
+			
+			// If no existing instance found, create a new one
+			if (!browserRecord) {
+				console.log('Launching new Playwright browser instance...');
+				const browser = await chromium.launch({ headless: true });
+				browserRecord = {
+					browser,
+					createdAt: Date.now(),
+					workflowId: executionContext.workflowId,
+					executionId: executionContext.executionId,
+					keepContext: executionContext.keepContext,
+					keepPage: executionContext.keepPage,
+				};
+				createdNewInstance = true;
+				if (executionContext.keepContext) {
+					activeInstanceId = randomUUID();
+					browserInstances.set(activeInstanceId, browserRecord);
+					console.log(`Created persistent browser instance ${activeInstanceId} (keepContext=${executionContext.keepContext}, keepPage=${executionContext.keepPage})`);
+				} else {
+					shouldCloseAfterExecution = true;
 				}
 			}
 
@@ -165,8 +158,9 @@ const service = {
 					executionId: executionContext.executionId,
 					nodeId: executionContext.nodeId,
 					nodeName: executionContext.nodeName,
-					keepInstance: executionContext.keepInstance,
-					reused: Boolean(executionContext.requestedInstanceId),
+					keepContext: executionContext.keepContext,
+					keepPage: executionContext.keepPage,
+					reused: !createdNewInstance,
 				},
 			};
 			const result = await func(safeRequire, inputs, environment);
@@ -261,24 +255,56 @@ const service = {
 				}
 			}
 
-			// Close browser if keepInstance is false (regardless of whether instance was reused or newly created)
-			if (!executionContext.keepInstance) {
+			// Manage context and page lifecycle based on keepContext and keepPage settings
+			if (browserRecord.browser && browserRecord.browser.isConnected()) {
+				const contexts = browserRecord.browser.contexts();
+				
+				if (!executionContext.keepContext) {
+					// Close all contexts (this will close all pages)
+					for (const context of contexts) {
+						try {
+							await context.close();
+							console.log(`Closed context (keepContext=false)`);
+						} catch (error) {
+							console.error('Failed to close context:', error);
+						}
+					}
+					// Close browser
+					await browserRecord.browser.close().catch((error) => {
+						console.error('Failed to close browser after execution:', error);
+					});
+					// Remove from Map if instance exists
+					if (activeInstanceId) {
+						browserInstances.delete(activeInstanceId);
+						console.log(`Browser instance ${activeInstanceId} closed and removed (keepContext=false)`);
+						activeInstanceId = undefined;
+					}
+				} else if (!executionContext.keepPage) {
+					// Keep context but close all pages
+					for (const context of contexts) {
+						const pages = context.pages();
+						for (const page of pages) {
+							try {
+								await page.close();
+								console.log(`Closed page (keepPage=false, keepContext=true)`);
+							} catch (error) {
+								console.error('Failed to close page:', error);
+							}
+						}
+					}
+				} else {
+					// keepPage=true: keep both context and pages
+					console.log(`Keeping context and pages (keepPage=true, keepContext=true)`);
+				}
+			}
+			
+			if (shouldCloseAfterExecution && (!executionContext.keepContext)) {
+				// Fallback: close if shouldCloseAfterExecution is true (for newly created instances without keepContext)
 				if (browserRecord.browser && browserRecord.browser.isConnected()) {
 					await browserRecord.browser.close().catch((error) => {
 						console.error('Failed to close browser after execution:', error);
 					});
 				}
-				// Remove from Map if instance exists
-				if (activeInstanceId) {
-					browserInstances.delete(activeInstanceId);
-					console.log(`Browser instance ${activeInstanceId} closed and removed (keepInstance=false)`);
-					activeInstanceId = undefined;
-				}
-			} else if (shouldCloseAfterExecution) {
-				// Fallback: close if shouldCloseAfterExecution is true (for newly created instances without keepInstance)
-				await browserRecord.browser.close().catch((error) => {
-					console.error('Failed to close browser after execution:', error);
-				});
 			}
 
 			let responsePayload = result;
@@ -286,9 +312,9 @@ const service = {
 				responsePayload = { output1: [], __rawResult: responsePayload };
 			}
 
-			// Only return instance ID if keepInstance is true (browser stays alive)
-			// If keepInstance is false, browser is closed, so don't return instance ID
-			const instanceIdToReturn = executionContext.keepInstance ? activeInstanceId : undefined;
+			// Only return instance ID if keepContext is true (browser/context stays alive)
+			// If keepContext is false, browser is closed, so don't return instance ID
+			const instanceIdToReturn = executionContext.keepContext ? activeInstanceId : undefined;
 			if (instanceIdToReturn && typeof responsePayload === 'object') {
 				responsePayload.__playwrightInstanceId = instanceIdToReturn;
 			}
@@ -296,9 +322,19 @@ const service = {
 			callback(null, responsePayload);
 		} catch (error) {
 			console.error('Execution error:', error);
-			// Close browser if keepInstance is false (regardless of whether instance was reused or newly created)
-			if (!executionContext.keepInstance) {
+			// Close browser/context/page if keepContext is false (regardless of whether instance was reused or newly created)
+			if (!executionContext.keepContext) {
 				if (browserRecord && browserRecord.browser && browserRecord.browser.isConnected()) {
+					// Close all contexts first
+					const contexts = browserRecord.browser.contexts();
+					for (const context of contexts) {
+						try {
+							await context.close();
+						} catch (closeError) {
+							console.error('Failed to close context after error:', closeError);
+						}
+					}
+					// Then close browser
 					browserRecord.browser.close().catch((closeError) => {
 						console.error('Failed to close browser after error:', closeError);
 					});
@@ -306,17 +342,25 @@ const service = {
 				// Remove from Map if instance exists
 				if (activeInstanceId) {
 					browserInstances.delete(activeInstanceId);
-					console.log(`Browser instance ${activeInstanceId} closed and removed after error (keepInstance=false)`);
+					console.log(`Browser instance ${activeInstanceId} closed and removed after error (keepContext=false)`);
 				}
-			} else if (browserRecord && browserRecord.browser && browserRecord.browser.isConnected()) {
-				// Fallback: close if it was a newly created instance without keepInstance
-				if (!executionContext.requestedInstanceId || createdNewInstance) {
-					browserRecord.browser.close().catch((closeError) => {
-						console.error('Failed to close browser after error:', closeError);
-					});
+			} else if (!executionContext.keepPage) {
+				// Keep context but close pages on error
+				if (browserRecord && browserRecord.browser && browserRecord.browser.isConnected()) {
+					const contexts = browserRecord.browser.contexts();
+					for (const context of contexts) {
+						const pages = context.pages();
+						for (const page of pages) {
+							try {
+								await page.close();
+							} catch (closeError) {
+								console.error('Failed to close page after error:', closeError);
+							}
+						}
+					}
 				}
 			}
-			if (createdNewInstance && activeInstanceId && !executionContext.keepInstance) {
+			if (createdNewInstance && activeInstanceId && !executionContext.keepContext) {
 				browserInstances.delete(activeInstanceId);
 			}
 			callback(error.message || String(error), null);

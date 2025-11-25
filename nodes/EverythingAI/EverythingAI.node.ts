@@ -275,8 +275,8 @@ export class EverythingAI implements INodeType {
 								required: true,
 							},
 							{
-								displayName: 'Keep Browser Instance',
-								name: 'playwrightKeepBrowserInstance',
+								displayName: 'Keep Context',
+								name: 'playwrightKeepContext',
 								type: 'boolean',
 								default: false,
 								displayOptions: {
@@ -285,20 +285,20 @@ export class EverythingAI implements INodeType {
 									},
 								},
 								description:
-									'When enabled, the Playwright browser instance stays alive after execution and can be reused by downstream nodes. Disable to close the browser after each execution.',
+									'When enabled, the browser context (including cookies, localStorage, etc.) stays alive after execution and can be reused by downstream nodes. This allows maintaining login sessions across nodes. Disable to close the context after each execution.',
 							},
 							{
-								displayName: 'Browser Instance ID',
-								name: 'playwrightInstanceId',
-								type: 'string',
-								default: '',
+								displayName: 'Keep Page',
+								name: 'playwrightKeepPage',
+								type: 'boolean',
+								default: false,
 								displayOptions: {
 									show: {
 										playwright: [true],
 									},
 								},
 								description:
-									'Use an existing Playwright browser instance ID returned from a previous node to reuse the same browser/session.',
+									'When enabled, pages stay open after execution and can be reused by downstream nodes. This also enables Keep Context automatically. When disabled but Keep Context is enabled, pages will be closed but the context (cookies, etc.) will be preserved.',
 							},
 							{
 								displayName: 'Auto Screenshot',
@@ -458,8 +458,8 @@ export class EverythingAI implements INodeType {
 				playwright?: boolean;
 				remoteExecutionServerUrl?: string;
 				remoteExecutionPassword?: string;
-				playwrightKeepBrowserInstance?: boolean;
-				playwrightInstanceId?: string;
+				playwrightKeepContext?: boolean;
+				playwrightKeepPage?: boolean;
 				playwrightAutoScreenshot?: boolean;
 			};
 		};
@@ -477,19 +477,15 @@ export class EverythingAI implements INodeType {
 		let remoteCredentials: {
 			serverUrl?: string;
 			password?: string;
-			keepBrowserInstance?: boolean;
-			browserInstanceId?: string;
+			keepContext?: boolean;
+			keepPage?: boolean;
 			autoScreenshot?: boolean;
 		} | undefined;
 		if (additionalPackages.playwright) {
 			const serverUrl = externalPackagesRaw.remoteExecutionServerUrl;
 			const password = externalPackagesRaw.remoteExecutionPassword;
-			const keepBrowserInstance =
-				externalPackagesRaw.playwrightKeepBrowserInstance === true;
-			const browserInstanceId =
-				typeof externalPackagesRaw.playwrightInstanceId === 'string'
-					? externalPackagesRaw.playwrightInstanceId.trim()
-					: '';
+			const keepPage = externalPackagesRaw.playwrightKeepPage === true;
+			const keepContext = externalPackagesRaw.playwrightKeepContext === true || keepPage;
 			const autoScreenshot = externalPackagesRaw.playwrightAutoScreenshot !== false; // Default to true
 			
 			if (!serverUrl || !password) {
@@ -502,8 +498,8 @@ export class EverythingAI implements INodeType {
 			remoteCredentials = {
 				serverUrl,
 				password,
-				keepBrowserInstance,
-				browserInstanceId,
+				keepContext,
+				keepPage,
 				autoScreenshot,
 			};
 		}
@@ -822,11 +818,8 @@ export class EverythingAI implements INodeType {
 					executionId,
 					nodeId,
 					nodeName,
-					keepInstance: remoteCredentials.keepBrowserInstance === true,
-					browserInstanceId:
-						remoteCredentials.browserInstanceId && remoteCredentials.browserInstanceId !== ''
-							? remoteCredentials.browserInstanceId
-							: undefined,
+					keepContext: remoteCredentials.keepContext === true,
+					keepPage: remoteCredentials.keepPage === true,
 					autoScreenshot: remoteCredentials.autoScreenshot === true,
 				};
 				

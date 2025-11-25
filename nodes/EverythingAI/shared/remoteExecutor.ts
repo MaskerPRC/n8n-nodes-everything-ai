@@ -16,8 +16,8 @@ interface PlaywrightExecutionMetadata {
 	executionId?: string;
 	nodeId?: string;
 	nodeName?: string;
-	keepInstance?: boolean;
-	browserInstanceId?: string;
+	keepContext?: boolean;
+	keepPage?: boolean;
 	autoScreenshot?: boolean;
 }
 
