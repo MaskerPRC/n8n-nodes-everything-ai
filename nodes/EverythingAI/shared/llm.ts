@@ -1048,7 +1048,43 @@ export async function generateCodeWithLLM(
 			throw new NodeOperationError(this.getNode(), 'LLM returned empty content');
 		}
 
-		const parsed = JSON.parse(content);
+		// Clean markdown code block markers if present
+		let cleanedContent = content.trim();
+		
+		// Remove markdown code block markers (```json or ```)
+		if (cleanedContent.startsWith('```')) {
+			// Remove opening marker (```json or ```)
+			cleanedContent = cleanedContent.replace(/^```(?:json)?\s*\n?/, '');
+			// Remove closing marker (```)
+			cleanedContent = cleanedContent.replace(/\n?```\s*$/, '');
+		}
+		
+		// Trim again after cleaning
+		cleanedContent = cleanedContent.trim();
+		
+		let parsed;
+		try {
+			parsed = JSON.parse(cleanedContent);
+		} catch (parseError) {
+			// If parsing fails, try to extract JSON from the content
+			// Look for JSON object pattern
+			const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+			if (jsonMatch) {
+				try {
+					parsed = JSON.parse(jsonMatch[0]);
+				} catch {
+					throw new NodeOperationError(
+						this.getNode(),
+						`LLM returned invalid JSON. Content: ${cleanedContent.substring(0, 200)}...`,
+					);
+				}
+			} else {
+				throw new NodeOperationError(
+					this.getNode(),
+					`LLM returned invalid JSON. Content: ${cleanedContent.substring(0, 200)}...`,
+				);
+			}
+		}
 		
 		// Validate return format
 		if (!parsed.code || !parsed.schemas) {

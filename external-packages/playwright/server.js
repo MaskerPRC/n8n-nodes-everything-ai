@@ -129,11 +129,30 @@ const service = {
 			// Create a safe execution context with Playwright available
 			// Return playwright object with chromium property
 			const playwrightModule = { chromium };
+			
+			// List of Node.js built-in modules (core modules)
+			const builtInModules = [
+				'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
+				'constants', 'crypto', 'dgram', 'dns', 'domain', 'events', 'fs', 'http',
+				'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks',
+				'process', 'punycode', 'querystring', 'readline', 'repl', 'stream',
+				'string_decoder', 'timers', 'tls', 'trace_events', 'tty', 'url', 'util',
+				'v8', 'vm', 'worker_threads', 'zlib'
+			];
+			
 			const safeRequire = (moduleName) => {
+				// Allow playwright module
 				if (moduleName === 'playwright') {
 					return playwrightModule;
 				}
-				throw new Error(`Module '${moduleName}' is not allowed. Only 'playwright' is available.`);
+				
+				// Allow all Node.js built-in modules
+				if (builtInModules.includes(moduleName)) {
+					return require(moduleName);
+				}
+				
+				// Block all other modules (npm packages, local files, etc.)
+				throw new Error(`Module '${moduleName}' is not allowed. Only Node.js built-in modules and 'playwright' are available.`);
 			};
 
 			// Wrap code in async function
