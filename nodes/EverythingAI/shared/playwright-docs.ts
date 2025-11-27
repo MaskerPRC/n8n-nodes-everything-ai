@@ -11,8 +11,13 @@ export const PLAYWRIGHT_DOCUMENTATION = `
 Playwright is available for browser automation tasks. The remote execution server launches and manages the browser instance for you:
 
 - A Playwright \`browser\` object is injected automatically. **Never call \`chromium.launch()\` or \`browser.close()\`.**
-- Create your own contexts/pages inside the code and close them when finished.
-- A \`playwrightSession\` object is available (with \`instanceId\`, \`workflowId\`, \`executionId\`, etc.) so you can understand which browser instance you're using.
+- A \`persistentContext\` object is available if you're reusing a persistent browser's context (when keepContext=true). **Use this to maintain login state across executions.**
+- \`firstContextName\`: User-specified name for the first context (if any, from node configuration).
+- \`persistentContexts\`: Map of all available named contexts (read-only).
+- \`getContext(name)\`: Function to get a context by name (supports partial matching, returns the latest match).
+- \`listContexts()\`: Function to list all available context IDs.
+- Create your own contexts/pages inside the code and close them when finished, OR use \`persistentContext\` if available.
+- A \`playwrightSession\` object is available (with \`instanceId\`, \`workflowId\`, \`executionId\`, \`contextId\`, etc.) so you can understand which browser instance you're using.
 
 ### URL Protocol Handling (MANDATORY)
 
@@ -37,7 +42,9 @@ await page.goto(url);
 
 **1. Navigate and Get Content**
 \`\`\`javascript
-const context = await browser.newContext();
+// Use persistentContext if available (maintains login state across executions)
+// Otherwise create a new context
+const context = persistentContext || await browser.newContext();
 const page = await context.newPage();
 
 const url = ensureUrlProtocol('example.com');
@@ -47,9 +54,12 @@ const html = await page.content();
 const title = await page.title();
 
 // Do NOT close page/context unless user explicitly asks
+// If using persistentContext, do NOT close it - it's shared across executions
 // Keeping pages open allows downstream nodes to access them and enables automatic screenshots
 // await page.close();
-// await context.close();
+// if (!persistentContext) {
+//   await context.close(); // Only close if we created a new context
+// }
 \`\`\`
 
 **2. Click / Fill / Extract**
@@ -129,41 +139,79 @@ await page.waitForResponse(response => response.status() === 200);
 await page.waitForNavigation();
 \`\`\`
 
-**6. Accessing Existing Pages (Reusing Pages from Previous Nodes)**
+**6. Using Persistent Context (Maintaining Login State Across Executions)**
+**IMPORTANT**: When \`keepContext=true\`, the server automatically reuses context across different executions in the same workflow. Use \`persistentContext\` to maintain login state.
+\`\`\`javascript
+// Use persistentContext if available (maintains login state, cookies, etc.)
+// This allows you to login once and reuse the session across multiple executions
+const context = persistentContext || await browser.newContext();
+
+// If persistentContext exists, it means we're reusing a previous login session
+// You can directly use it without logging in again
+if (persistentContext) {
+  console.log('Reusing persistent context - login state maintained');
+  // Use existing pages in the context, or create new pages
+  const pages = context.pages();
+  const page = pages.length > 0 ? pages[0] : await context.newPage();
+  
+  // Now you can directly interact with the page without logging in again
+  await page.click('button#submit', { timeout: 5000 });
+} else {
+  // No persistent context - need to login first
+  const page = await context.newPage();
+  const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+  
+  // Login process...
+  await page.fill('input[name="username"]', 'user', { timeout: 5000 });
+  await page.fill('input[name="password"]', 'pass', { timeout: 5000 });
+  await page.click('button[type="submit"]', { timeout: 5000 });
+  
+  // After login, context will be saved as persistentContext for next execution
+}
+
+// Do NOT close persistentContext - it's shared across executions
+// Only close if we created a new context
+if (!persistentContext) {
+  // await context.close(); // Only if user explicitly asks
+}
+\`\`\`
+
+**7. Accessing Existing Pages (Reusing Pages from Previous Nodes)**
 **CRITICAL**: ALWAYS check for existing pages first. Only create a new page when the user explicitly says "打开" (open), "访问" (visit), "导航到" (navigate to), etc.
 \`\`\`javascript
 // ALWAYS check for existing pages first
-const contexts = browser.contexts();
+// First, try to use persistentContext if available
+let context = persistentContext || null;
 let page = null;
-let context = null;
 
-// Try to find an existing page
-for (const ctx of contexts) {
-  const pages = ctx.pages();
+if (context) {
+  // Use pages from persistent context
+  const pages = context.pages();
   if (pages.length > 0) {
-    page = pages[0]; // Use the first available page
-    context = ctx;
-    break;
+    page = pages[0];
+  }
+} else {
+  // Check existing contexts
+  const contexts = browser.contexts();
+  for (const ctx of contexts) {
+    const pages = ctx.pages();
+    if (pages.length > 0) {
+      page = pages[0];
+      context = ctx;
+      break;
+    }
   }
 }
 
 // Only create new page if user explicitly says to open/navigate
 // AND no existing page found
-// Do NOT automatically navigate just because input has URL
-// Input fields are just data, not navigation instructions
 if (!page) {
   // Check if user instruction explicitly mentions navigation
   // Keywords: "打开" (open), "访问" (visit), "导航" (navigate), "去" (go to)
-  // If user just says "点击" (click), "填写" (fill), "获取" (get), etc.,
-  // do NOT create new page - this means no existing page, so operation will fail
-  // But if user says "打开xxx页面" (open xxx page), then create new page
-  const userWantsToNavigate = true; // In real code, check user instruction
-  
   if (userWantsToNavigate) {
-    context = await browser.newContext();
+    context = context || await browser.newContext();
     page = await context.newPage();
-    // Only navigate if URL is provided AND user explicitly says to open/navigate
-    // Do NOT use input URL automatically - only if user mentions it
     const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
   }
@@ -173,6 +221,7 @@ if (!page) {
 if (page) {
   const screenshot = await page.screenshot({ fullPage: true });
   // Do NOT close page/context unless user explicitly asks
+  // Do NOT close persistentContext
 }
 \`\`\`
 
@@ -206,6 +255,67 @@ outputs.A.push({
 });
 
 return outputs;
+\`\`\`
+
+### Naming Contexts for Reuse (When keepContext=true)
+
+**CRITICAL**: When \`keepContext=true\`, you can name contexts through the return value to enable reuse across executions. This is especially useful for managing multiple accounts.
+
+**Naming Rules**:
+- Name contexts based on business understanding (e.g., "小红书主账号", "管理员账号", "测试账号")
+- Avoid generic names like "账号1", "账号2", "context1"
+- If \`firstContextName\` is available (from node configuration), use it for the first context
+- All contexts should be named through the \`__playwrightContexts\` field in the return value
+
+**Return Value Format**:
+\`\`\`javascript
+return {
+  outputA: [{ json: { ... } }],
+  __playwrightContexts: {
+    '小红书主账号': context1,  // First context, use firstContextName if available
+    '管理员账号': context2,     // Subsequent contexts, name based on business understanding
+    '测试账号': context3,       // Subsequent contexts, name based on business understanding
+  }
+};
+\`\`\`
+
+**Example: Managing Multiple Accounts**
+\`\`\`javascript
+// Create and name multiple contexts
+const mainAccountContext = await browser.newContext();
+const mainPage = await mainAccountContext.newPage();
+await mainPage.goto('https://xiaohongshu.com', { waitUntil: 'domcontentloaded', timeout: 5000 });
+// Login to main account...
+
+const backupAccountContext = await browser.newContext();
+const backupPage = await backupAccountContext.newPage();
+await backupPage.goto('https://xiaohongshu.com', { waitUntil: 'domcontentloaded', timeout: 5000 });
+// Login to backup account...
+
+return {
+  outputA: [{ json: { message: 'Logged in' } }],
+  __playwrightContexts: {
+    '小红书主账号': mainAccountContext,    // Use firstContextName if available, otherwise name based on business
+    '小红书备用账号': backupAccountContext,  // Name based on business understanding
+  }
+};
+\`\`\`
+
+**Example: Reusing Named Contexts**
+\`\`\`javascript
+// List all available contexts
+const availableContexts = listContexts();
+console.log('Available contexts:', availableContexts);
+// Output: ['小红书主账号-1703123456789', '小红书备用账号-1703123456789']
+
+// Get a specific context by name (supports partial matching, returns the latest)
+const mainAccountContext = getContext('小红书主账号');
+if (mainAccountContext) {
+  const page = mainAccountContext.pages()[0] || await mainAccountContext.newPage();
+  // Use the context directly, no need to login again
+} else {
+  // Context not found, need to create new one
+}
 \`\`\`
 
 ### Important Rules

@@ -313,6 +313,21 @@ export class EverythingAI implements INodeType {
 								description:
 									'When enabled, automatically takes a screenshot of all open pages before code execution ends and returns it as binary data. Disable to skip automatic screenshots.',
 							},
+							{
+								displayName: 'Context ID/Name',
+								name: 'playwrightContextId',
+								type: 'string',
+								default: '',
+								displayOptions: {
+									show: {
+										playwright: [true],
+										playwrightKeepContext: [true],
+									},
+								},
+								description:
+									'Optional: Specify a name for the first context (when creating), or specify which context to use (when reusing). If specified when creating, the AI will use this name for the first context. If specified when reusing, the system will find and use the matching context. Examples: "小红书主账号", "管理员账号", "测试账号".',
+								placeholder: 'e.g., 小红书主账号, admin-account',
+							},
 						],
 					},
 				],
@@ -461,6 +476,7 @@ export class EverythingAI implements INodeType {
 				playwrightKeepContext?: boolean;
 				playwrightKeepPage?: boolean;
 				playwrightAutoScreenshot?: boolean;
+				playwrightContextId?: string;
 			};
 		};
 		const reset = advanced.reset || false;
@@ -480,6 +496,7 @@ export class EverythingAI implements INodeType {
 			keepContext?: boolean;
 			keepPage?: boolean;
 			autoScreenshot?: boolean;
+			contextId?: string;
 		} | undefined;
 		if (additionalPackages.playwright) {
 			const serverUrl = externalPackagesRaw.remoteExecutionServerUrl;
@@ -487,6 +504,7 @@ export class EverythingAI implements INodeType {
 			const keepPage = externalPackagesRaw.playwrightKeepPage === true;
 			const keepContext = externalPackagesRaw.playwrightKeepContext === true || keepPage;
 			const autoScreenshot = externalPackagesRaw.playwrightAutoScreenshot !== false; // Default to true
+			const contextId = externalPackagesRaw.playwrightContextId || undefined;
 			
 			if (!serverUrl || !password) {
 				throw new NodeOperationError(
@@ -501,6 +519,7 @@ export class EverythingAI implements INodeType {
 				keepContext,
 				keepPage,
 				autoScreenshot,
+				contextId,
 			};
 		}
 
@@ -821,6 +840,7 @@ export class EverythingAI implements INodeType {
 					keepContext: remoteCredentials.keepContext === true,
 					keepPage: remoteCredentials.keepPage === true,
 					autoScreenshot: remoteCredentials.autoScreenshot === true,
+					contextId: remoteCredentials.contextId || undefined,
 				};
 				
 				result = await executeRemote(serverUrl, password, functionBody, allInputs, metadata);

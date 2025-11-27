@@ -1,12 +1,12 @@
 /**
  * Playwright Remote Execution Server
- * 
+ *
  * This server provides remote execution capabilities for Playwright browser automation.
  * It uses dnode for RPC communication.
- * 
+ *
  * Based on Playwright MCP (Model Context Protocol) but adapted for direct code execution
  * rather than MCP tool calls.
- * 
+ *
  * Usage:
  *   1. Build the Docker image: docker build -t playwright-server .
  *   2. Run the container: docker run -d -p 5004:5004 -e PASSWORD=your-password --name playwright-server playwright-server
@@ -19,11 +19,15 @@ const { randomUUID } = require('crypto');
 const { chromium } = require('playwright');
 
 // Configuration
-const PORT = process.env.PORT || 5004;
+const PORT = process.env.PORT || 5009;
 const PASSWORD = process.env.PASSWORD || 'default-password-change-me';
 
 // Store active browser instances (for cleanup on shutdown)
 // Each instance contains: browser, contexts (if keepContext), pages (if keepPage)
+// persistentContext: true means this browser's context can be reused across executions in the same workflow
+// primaryContext: the main context to reuse (contains login state, cookies, etc.)
+// contexts: Map of all named contexts (key: contextId with timestamp, value: Context)
+// contextMetadata: Map of context metadata (key: contextId, value: { userName, contextId, createdAt, lastUsedAt })
 const browserInstances = new Map();
 
 function cleanupBrowserInstance(instanceId, reason) {
@@ -69,7 +73,7 @@ const service = {
 			// keepPage defaults to keepContext (if keepPage is true, keepContext is also true)
 			const keepPage = metadata.keepPage === true;
 			const keepContext = metadata.keepContext === true || keepPage;
-			
+
 			const executionContext = {
 				workflowId: metadata.workflowId || 'unknown-workflow',
 				workflowName: metadata.workflowName || '',
@@ -79,17 +83,19 @@ const service = {
 				keepContext: keepContext,
 				keepPage: keepPage,
 				autoScreenshot: metadata.autoScreenshot === true,
+				contextId: metadata.contextId || null, // User-specified context ID/name
 			};
 
 			let activeInstanceId = null;
 			let browserRecord = null;
 			let createdNewInstance = false;
 			let shouldCloseAfterExecution = false;
+			let reusedPersistentContext = false;
 
-			// Auto-find instance by workflowId and executionId
+			// Step 1: Try to find exact match (workflowId + executionId)
 			// This allows nodes in the same workflow execution to automatically share browser instances
 			for (const [instanceId, record] of browserInstances.entries()) {
-				if (record.workflowId === executionContext.workflowId && 
+				if (record.workflowId === executionContext.workflowId &&
 					record.executionId === executionContext.executionId &&
 					record.browser?.isConnected()) {
 					activeInstanceId = instanceId;
@@ -98,8 +104,35 @@ const service = {
 					break;
 				}
 			}
-			
-			// If no existing instance found, create a new one
+
+			// Step 2: If no exact match found and keepContext=true, try to find persistent browser in same workflow
+			// This allows reusing context across different executions in the same workflow (maintains login state)
+			if (!browserRecord && executionContext.keepContext) {
+				for (const [instanceId, record] of browserInstances.entries()) {
+					if (record.workflowId === executionContext.workflowId &&
+						record.persistentContext === true &&
+						record.browser?.isConnected()) {
+						activeInstanceId = instanceId;
+						browserRecord = record;
+						reusedPersistentContext = true;
+						console.log(`Found persistent browser instance ${activeInstanceId} for workflow ${executionContext.workflowId} (reusing across executions)`);
+						
+						// Update executionId to current execution (for tracking)
+						browserRecord.lastExecutionId = executionContext.executionId;
+						
+						// Ensure contexts and contextMetadata exist
+						if (!browserRecord.contexts) {
+							browserRecord.contexts = new Map();
+						}
+						if (!browserRecord.contextMetadata) {
+							browserRecord.contextMetadata = new Map();
+						}
+						break;
+					}
+				}
+			}
+
+			// Step 3: If no existing instance found, create a new one
 			if (!browserRecord) {
 				console.log('Launching new Playwright browser instance...');
 				const browser = await chromium.launch({ headless: true });
@@ -108,8 +141,13 @@ const service = {
 					createdAt: Date.now(),
 					workflowId: executionContext.workflowId,
 					executionId: executionContext.executionId,
+					lastExecutionId: executionContext.executionId,
 					keepContext: executionContext.keepContext,
 					keepPage: executionContext.keepPage,
+					persistentContext: executionContext.keepContext, // Mark as persistent if keepContext=true
+					primaryContext: null, // Will be set when context is created
+					contexts: new Map(), // Map<string, Context> - All named contexts
+					contextMetadata: new Map(), // Map<string, { userName, contextId, createdAt, lastUsedAt }>
 				};
 				createdNewInstance = true;
 				if (executionContext.keepContext) {
@@ -119,6 +157,9 @@ const service = {
 				} else {
 					shouldCloseAfterExecution = true;
 				}
+			} else if (reusedPersistentContext) {
+				// If we reused a persistent browser, ensure it's marked as persistent
+				browserRecord.persistentContext = true;
 			}
 
 			if (!browserRecord || !browserRecord.browser) {
@@ -129,7 +170,7 @@ const service = {
 			// Create a safe execution context with Playwright available
 			// Return playwright object with chromium property
 			const playwrightModule = { chromium };
-			
+
 			// List of Node.js built-in modules (core modules)
 			const builtInModules = [
 				'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
@@ -139,37 +180,103 @@ const service = {
 				'string_decoder', 'timers', 'tls', 'trace_events', 'tty', 'url', 'util',
 				'v8', 'vm', 'worker_threads', 'zlib'
 			];
-			
+
 			const safeRequire = (moduleName) => {
 				// Allow playwright module
 				if (moduleName === 'playwright') {
 					return playwrightModule;
 				}
-				
+
 				// Allow all Node.js built-in modules
 				if (builtInModules.includes(moduleName)) {
 					return require(moduleName);
 				}
-				
+
 				// Block all other modules (npm packages, local files, etc.)
 				throw new Error(`Module '${moduleName}' is not allowed. Only Node.js built-in modules and 'playwright' are available.`);
 			};
 
+			// Get or create primary context for persistent browsers
+			// If we're reusing a persistent browser, use its primaryContext
+			// If primaryContext doesn't exist, we'll create it after code execution
+			let primaryContext = null;
+			if (browserRecord.persistentContext && browserRecord.primaryContext) {
+				// Check if primaryContext is still valid
+				const contexts = browserRecord.browser.contexts();
+				if (contexts.includes(browserRecord.primaryContext)) {
+					primaryContext = browserRecord.primaryContext;
+					console.log('Reusing persistent context for login state');
+				} else {
+					// Context was closed, clear it
+					browserRecord.primaryContext = null;
+				}
+			}
+
 			// Wrap code in async function
 			// A Playwright browser instance is injected via environment.browser
+			// If persistentContext exists, it's also available for reuse
 			const asyncCode = `
 				return (async function() {
 					const browser = environment.browser;
 					const playwrightSession = environment.session;
+					// persistentContext is available if we're reusing a persistent browser's context
+					// Use it to maintain login state across executions
+					const persistentContext = environment.persistentContext || null;
+					// firstContextName: User-specified name for the first context (if any)
+					const firstContextName = environment.firstContextName || null;
+					// persistentContexts: Map of all available named contexts
+					const persistentContexts = environment.persistentContexts || new Map();
+					// getContext: Get a context by name (supports partial matching)
+					const getContext = environment.getContext || (() => null);
+					// listContexts: List all available context IDs
+					const listContexts = environment.listContexts || (() => []);
 					${code}
 				})();
 			`;
+
+			// Helper function to get context by name (supports partial matching)
+			const getContextByName = (contextName) => {
+				if (!browserRecord.contexts || browserRecord.contexts.size === 0) {
+					return null;
+				}
+				
+				const matchingContexts = [];
+				for (const [contextId, context] of browserRecord.contexts.entries()) {
+					// Check if context is still valid
+					const allContexts = browserRecord.browser.contexts();
+					if (!allContexts.includes(context)) {
+						continue;
+					}
+					
+					// Exact match
+					if (contextId === contextName) {
+						const timestamp = extractTimestamp(contextId);
+						matchingContexts.push({ contextId, context, timestamp });
+					}
+					// Partial match
+					else if (contextId.startsWith(contextName + '-')) {
+						const timestamp = extractTimestamp(contextId);
+						matchingContexts.push({ contextId, context, timestamp });
+					}
+				}
+				
+				if (matchingContexts.length > 0) {
+					matchingContexts.sort((a, b) => b.timestamp - a.timestamp);
+					return matchingContexts[0].context;
+				}
+				return null;
+			};
 
 			// Execute code in isolated context
 			console.log('Executing code...');
 			const func = new Function('require', 'inputs', 'environment', asyncCode);
 			const environment = {
 				browser: browserRecord.browser,
+				persistentContext: primaryContext, // Inject persistent context if available
+				firstContextName: executionContext.contextId || null, // User-specified first context name
+				persistentContexts: new Map(browserRecord.contexts || []), // All available contexts (read-only)
+				getContext: getContextByName, // Function to get context by name
+				listContexts: () => Array.from(browserRecord.contexts?.keys() || []), // Function to list all context IDs
 				session: {
 					instanceId: activeInstanceId,
 					workflowId: executionContext.workflowId,
@@ -179,7 +286,9 @@ const service = {
 					nodeName: executionContext.nodeName,
 					keepContext: executionContext.keepContext,
 					keepPage: executionContext.keepPage,
+					contextId: executionContext.contextId || null, // User-specified context ID
 					reused: !createdNewInstance,
+					reusedPersistentContext: reusedPersistentContext,
 				},
 			};
 			const result = await func(safeRequire, inputs, environment);
@@ -190,7 +299,7 @@ const service = {
 				try {
 					const contexts = browserRecord.browser.contexts();
 					const screenshots = [];
-					
+
 					for (const context of contexts) {
 						const pages = context.pages();
 						for (let i = 0; i < pages.length; i++) {
@@ -209,34 +318,34 @@ const service = {
 							}
 						}
 					}
-					
+
 					// Add screenshots to result if any were taken
 					if (screenshots.length > 0) {
 						if (!result || typeof result !== 'object') {
 							result = {};
 						}
-						
+
 						// Ensure result has output structure
 						if (!result.output1 && !result.A) {
 							result.A = [];
 						}
-						
+
 						const outputKey = result.A ? 'A' : 'output1';
 						if (!result[outputKey] || !Array.isArray(result[outputKey])) {
 							result[outputKey] = [];
 						}
-						
+
 						// Add screenshot to first output item, or create new item
 						let outputItem = result[outputKey][0];
 						if (!outputItem) {
 							outputItem = { json: {}, binary: {} };
 							result[outputKey].push(outputItem);
 						}
-						
+
 						if (!outputItem.binary) {
 							outputItem.binary = {};
 						}
-						
+
 						// Add screenshots to binary data
 						if (screenshots.length === 1) {
 							// Single screenshot: use simple key
@@ -265,7 +374,7 @@ const service = {
 								outputItem.json.screenshotUrls = screenshots.map(s => s.url);
 							}
 						}
-						
+
 						console.log(`Auto-screenshot: Captured ${screenshots.length} screenshot(s)`);
 					}
 				} catch (autoScreenshotError) {
@@ -277,7 +386,7 @@ const service = {
 			// Manage context and page lifecycle based on keepContext and keepPage settings
 			if (browserRecord.browser && browserRecord.browser.isConnected()) {
 				const contexts = browserRecord.browser.contexts();
-				
+
 				if (!executionContext.keepContext) {
 					// Close all contexts (this will close all pages)
 					for (const context of contexts) {
@@ -315,8 +424,29 @@ const service = {
 					// keepPage=true: keep both context and pages
 					console.log(`Keeping context and pages (keepPage=true, keepContext=true)`);
 				}
+				
+				// Update primaryContext for persistent browsers
+				// If this is a persistent browser and we have contexts, set the first one as primary
+				if (browserRecord.persistentContext && contexts.length > 0) {
+					if (!browserRecord.primaryContext || !contexts.includes(browserRecord.primaryContext)) {
+						// Set first context as primary, or update if primary was closed
+						browserRecord.primaryContext = contexts[0];
+						console.log(`Set primary context for persistent browser ${activeInstanceId}`);
+					}
+					
+					// Clean up invalid contexts from contexts Map
+					if (browserRecord.contexts) {
+						for (const [contextId, context] of browserRecord.contexts.entries()) {
+							if (!contexts.includes(context)) {
+								browserRecord.contexts.delete(contextId);
+								browserRecord.contextMetadata.delete(contextId);
+								console.log(`Removed invalid context: ${contextId}`);
+							}
+						}
+					}
+				}
 			}
-			
+
 			if (shouldCloseAfterExecution && (!executionContext.keepContext)) {
 				// Fallback: close if shouldCloseAfterExecution is true (for newly created instances without keepContext)
 				if (browserRecord.browser && browserRecord.browser.isConnected()) {
@@ -412,16 +542,16 @@ const server = net.createServer((socket) => {
 					authenticated = true;
 					console.log('Authentication successful, setting up dnode');
 					socket.write('OK\n');
-					
+
 					// After authentication, create dnode server for this connection
 					dnodeServer = dnode(service);
-					
+
 					// Remove the 'data' listener for authentication BEFORE piping
 					socket.removeAllListeners('data');
-					
+
 					// Pipe dnode server to socket and vice versa
 					dnodeServer.pipe(socket).pipe(dnodeServer);
-					
+
 					// The remaining data (if any) will be handled by dnode through the pipe
 					const remainingData = buffer.substring(buffer.indexOf('\n') + 1);
 					if (remainingData) {
@@ -438,13 +568,13 @@ const server = net.createServer((socket) => {
 			}
 		}
 	});
-	
+
 	socket.on('end', () => {
 		if (dnodeServer) {
 			dnodeServer.end();
 		}
 	});
-	
+
 	socket.on('error', (error) => {
 		console.error('Socket error:', error);
 	});

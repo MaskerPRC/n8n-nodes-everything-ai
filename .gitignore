@@ -1,3 +1,4 @@
 dist
 node_modules
 .n9n.packages
+external-packages/playwright/.idea

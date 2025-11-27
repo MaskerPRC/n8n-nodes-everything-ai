@@ -168,9 +168,11 @@ Output data structure:
     ${additionalPackages?.playwright ? `
     - **Browser Automation**: \`playwright\` - Modern browser automation library for web scraping, testing, and automation.
       - **Browser lifecycle is managed for you**: A \`browser\` object is injected. **Do NOT call \`chromium.launch()\` or \`browser.close()\`.**
+      - **CRITICAL - Persistent Context for Login State**: When \`keepContext=true\`, a \`persistentContext\` object is available in the execution environment. **Use this to maintain login state across different executions in the same workflow.** Example: \`const context = persistentContext || await browser.newContext();\` - If persistentContext exists, use it (maintains cookies/login), otherwise create new.
+      - **CRITICAL - Context Naming for Multi-Account Scenarios**: When \`keepContext=true\`, you can name contexts through the return value to enable reuse across executions. This is especially useful for managing multiple accounts. **Name contexts based on business understanding** (e.g., "小红书主账号", "管理员账号", "测试账号"), not generic names like "账号1", "账号2". If \`firstContextName\` is available (from \`playwrightSession.contextId\` or \`firstContextName\` variable), use it for the first context. All contexts should be named through the \`__playwrightContexts\` field in the return value. Example: \`return { outputA: [...], __playwrightContexts: { '小红书主账号': context1, '管理员账号': context2 } };\`
       - **CRITICAL - Use existing pages by default**: **ALWAYS check for existing pages first before creating new ones.** Only create a new page/context when the user explicitly says "打开" (open), "访问" (visit), "导航到" (navigate to), "去" (go to), or similar navigation commands. If the user just says "点击" (click), "填写" (fill), "获取" (get), etc. without mentioning navigation, use the existing page from the current execution.
       - **CRITICAL - Input fields do NOT mean navigation**: Do NOT automatically use input field URLs for navigation unless the user explicitly mentions it in their prompt. Input fields are just data, not navigation instructions. For example, if user says "点击提交按钮" (click submit button), do NOT create a new page or navigate to an input URL. Just find the existing page and click the button.
-      - **Create contexts & pages**: Only create a context/page (\`const context = await browser.newContext(); const page = await context.newPage();\`) when the user explicitly asks to open/navigate to a new page.
+      - **Create contexts & pages**: Only create a context/page (\`const context = await browser.newContext(); const page = await context.newPage();\`) when the user explicitly asks to open/navigate to a new page. **Always prefer using \`persistentContext\` if available to maintain login state.**
       - **IMPORTANT - Keep pages open by default**: **Do NOT close pages or contexts unless the user explicitly asks to close them.** Keeping pages open allows:
         - Downstream nodes to access the same pages
         - Automatic screenshots to capture the current state
@@ -205,37 +207,48 @@ Output data structure:
         ]);
         \`\`\`
         This prevents the code from hanging if the request never completes or navigation never happens.
-      - **Typical workflow - ALWAYS check for existing pages first**:
+      - **Typical workflow - Use persistentContext to maintain login state**:
         \`\`\`javascript
-        // ALWAYS check for existing pages first
-        const contexts = browser.contexts();
-        let page = null;
-        let context = null;
+        // Use persistentContext if available (maintains login state across executions)
+        // This is automatically provided when keepContext=true
+        const context = persistentContext || await browser.newContext();
         
-        // Try to find an existing page
-        for (const ctx of contexts) {
-          const pages = ctx.pages();
+        // If persistentContext exists, we can reuse existing pages or create new ones
+        let page = null;
+        if (persistentContext) {
+          const pages = persistentContext.pages();
           if (pages.length > 0) {
-            page = pages[0];
-            context = ctx;
-            break;
+            page = pages[0]; // Use existing page
+          } else {
+            page = await persistentContext.newPage(); // Create new page in persistent context
+          }
+        } else {
+          // No persistent context - check for existing pages or create new
+          const contexts = browser.contexts();
+          for (const ctx of contexts) {
+            const pages = ctx.pages();
+            if (pages.length > 0) {
+              page = pages[0];
+              break;
+            }
+          }
+          if (!page) {
+            page = await context.newPage();
+            // Only navigate if user explicitly says to open/navigate
+            if (userInstruction.includes('打开') || userInstruction.includes('访问')) {
+              const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
+              await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
+            }
           }
         }
         
-        // Only create new page if user explicitly says to open/navigate
-        // AND no existing page found
-        if (!page && (userInstruction.includes('打开') || userInstruction.includes('访问') || userInstruction.includes('导航'))) {
-          context = await browser.newContext();
-          page = await context.newPage();
-          const url = ensureUrlProtocol(inputs[0]?.[0]?.json?.url || 'example.com');
-          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
-        }
-        
-        // Now use the page (either existing or newly created)
+        // Now use the page
         const title = await page.title();
-        // Do NOT close page/context unless user explicitly asks
-        // await page.close();
-        // await context.close();
+        // Do NOT close persistentContext - it's shared across executions
+        // Only close if we created a new context
+        // if (!persistentContext) {
+        //   await context.close(); // Only if user explicitly asks
+        // }
         \`\`\`
       - **Common operations** (all with default 5s timeout):
         - Navigate: \`await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 })\` (after protocol check)
@@ -452,34 +465,36 @@ function ensureUrlProtocol(url) {
 }
 
 // Use async/await to automate browser
-// ALWAYS check for existing pages first
-const contexts = browser.contexts();
+// Use persistentContext if available (maintains login state across executions)
+const context = persistentContext || await browser.newContext();
 let page = null;
-let context = null;
 
-// Try to find an existing page
-for (const ctx of contexts) {
-  const pages = ctx.pages();
+// If persistentContext exists, try to use existing pages
+if (persistentContext) {
+  const pages = persistentContext.pages();
   if (pages.length > 0) {
     page = pages[0];
-    context = ctx;
-    break;
+  }
+} else {
+  // No persistent context - check for existing pages
+  const contexts = browser.contexts();
+  for (const ctx of contexts) {
+    const pages = ctx.pages();
+    if (pages.length > 0) {
+      page = pages[0];
+      break;
+    }
   }
 }
 
 // Only create new page if user explicitly says to open/navigate
 // AND no existing page found
-// NOTE: In actual code, check the user instruction for navigation keywords
-// like "打开" (open), "访问" (visit), "导航" (navigate), "去" (go to)
-// If user just says "点击" (click), "填写" (fill), "获取" (get), etc.,
-// use the existing page, do NOT create new page or navigate
 if (!page) {
-  // Only create new page if user explicitly wants to navigate
-  // This is just an example - in real code, check user instruction
-  context = await browser.newContext();
   page = await context.newPage();
-  // Only navigate if URL is provided AND user explicitly says to open/navigate
-  // Do NOT automatically navigate just because input has URL
+  // Only navigate if user instruction explicitly mentions navigation
+  // Keywords: "打开" (open), "访问" (visit), "导航" (navigate), "去" (go to)
+  // If user just says "点击" (click), "填写" (fill), "获取" (get), etc.,
+  // do NOT navigate - use existing page or fail if no page exists
 }
 
 if (page) {
