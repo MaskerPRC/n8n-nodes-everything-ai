@@ -5,24 +5,27 @@
     "main": "server.js",
     "scripts": {
       "start": "node server.js",
+      "dev": "cross-env PORT=5009 HEADLESS=false node server.js",
       "test": "echo \"Error: no test specified\" && exit 1"
     },
     "keywords": [
-      "playwright",
-      "rpc",
-      "remote-execution",
-      "browser-automation"
+        "playwright",
+        "rpc",
+        "remote-execution",
+        "browser-automation"
     ],
     "author": "",
     "license": "MIT",
     "dependencies": {
-      "dnode": "^1.2.2"
+        "dnode": "^1.2.2"
     },
     "peerDependencies": {
-      "playwright": "^1.46.1"
+        "playwright": "^1.46.1"
     },
     "engines": {
-      "node": ">=18.0.0"
+        "node": ">=18.0.0"
+    },
+    "devDependencies": {
+        "cross-env": "^10.1.0"
     }
-  }
-  
+}

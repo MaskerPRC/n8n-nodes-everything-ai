@@ -21,6 +21,7 @@ const { chromium } = require('playwright');
 // Configuration
 const PORT = process.env.PORT || 5004;
 const PASSWORD = process.env.PASSWORD || 'default-password-change-me';
+const HEADLESS = process.env.HEADLESS !== 'false'; // Default to true, set to 'false' to show browser
 
 // Store active browser instances (for cleanup on shutdown)
 // Each instance contains: browser, contexts (if keepContext), pages (if keepPage)
@@ -134,8 +135,8 @@ const service = {
 
 			// Step 3: If no existing instance found, create a new one
 			if (!browserRecord) {
-				console.log('Launching new Playwright browser instance...');
-				const browser = await chromium.launch({ headless: true });
+				console.log(`Launching new Playwright browser instance (headless: ${HEADLESS})...`);
+				const browser = await chromium.launch({ headless: HEADLESS });
 				browserRecord = {
 					browser,
 					createdAt: Date.now(),
