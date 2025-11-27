@@ -813,13 +813,17 @@ export class EverythingAI implements INodeType {
 		}
 
 		// Check if code uses Playwright and we have remote credentials
+		// Also check for browser.* patterns since generated code uses injected browser object
 		const usesPlaywright = additionalPackages.playwright && (
 			code.includes('playwright') ||
 			code.includes('chromium') ||
 			code.includes('firefox') ||
 			code.includes('webkit') ||
 			code.includes("require('playwright')") ||
-			code.includes('require("playwright")')
+			code.includes('require("playwright")') ||
+			code.includes('browser.') ||
+			code.includes('persistentContext') ||
+			code.includes('playwrightSession')
 		);
 
 		let result: Record<string, INodeExecutionData[]>;

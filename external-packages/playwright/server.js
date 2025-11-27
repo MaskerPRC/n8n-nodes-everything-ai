@@ -116,10 +116,10 @@ const service = {
 						browserRecord = record;
 						reusedPersistentContext = true;
 						console.log(`Found persistent browser instance ${activeInstanceId} for workflow ${executionContext.workflowId} (reusing across executions)`);
-						
+
 						// Update executionId to current execution (for tracking)
 						browserRecord.lastExecutionId = executionContext.executionId;
-						
+
 						// Ensure contexts and contextMetadata exist
 						if (!browserRecord.contexts) {
 							browserRecord.contexts = new Map();
@@ -230,6 +230,11 @@ const service = {
 					const getContext = environment.getContext || (() => null);
 					// listContexts: List all available context IDs
 					const listContexts = environment.listContexts || (() => []);
+					// Make browser available globally for generated code
+					// This ensures browser is accessible even in nested async functions
+					if (typeof global !== 'undefined') {
+						global.browser = browser;
+					}
 					${code}
 				})();
 			`;
@@ -239,7 +244,7 @@ const service = {
 				if (!browserRecord.contexts || browserRecord.contexts.size === 0) {
 					return null;
 				}
-				
+
 				const matchingContexts = [];
 				for (const [contextId, context] of browserRecord.contexts.entries()) {
 					// Check if context is still valid
@@ -247,7 +252,7 @@ const service = {
 					if (!allContexts.includes(context)) {
 						continue;
 					}
-					
+
 					// Exact match
 					if (contextId === contextName) {
 						const timestamp = extractTimestamp(contextId);
@@ -259,7 +264,7 @@ const service = {
 						matchingContexts.push({ contextId, context, timestamp });
 					}
 				}
-				
+
 				if (matchingContexts.length > 0) {
 					matchingContexts.sort((a, b) => b.timestamp - a.timestamp);
 					return matchingContexts[0].context;
@@ -424,7 +429,7 @@ const service = {
 					// keepPage=true: keep both context and pages
 					console.log(`Keeping context and pages (keepPage=true, keepContext=true)`);
 				}
-				
+
 				// Update primaryContext for persistent browsers
 				// If this is a persistent browser and we have contexts, set the first one as primary
 				if (browserRecord.persistentContext && contexts.length > 0) {
@@ -433,7 +438,7 @@ const service = {
 						browserRecord.primaryContext = contexts[0];
 						console.log(`Set primary context for persistent browser ${activeInstanceId}`);
 					}
-					
+
 					// Clean up invalid contexts from contexts Map
 					if (browserRecord.contexts) {
 						for (const [contextId, context] of browserRecord.contexts.entries()) {

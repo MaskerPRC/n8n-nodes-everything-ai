@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-everything-ai",
-	"version": "1.11.11",
+	"version": "1.11.12",
 	"description": "Multi-input, multi-output, natural language-driven AI node that automatically generates and executes code based on natural language instructions",
 	"license": "MIT",
 	"homepage": "https://github.com/MaskerPRC/n8n-nodes-everything-ai",
