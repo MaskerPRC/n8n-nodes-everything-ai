@@ -19,7 +19,7 @@ const { randomUUID } = require('crypto');
 const { chromium } = require('playwright');
 
 // Configuration
-const PORT = process.env.PORT || 5009;
+const PORT = process.env.PORT || 5004;
 const PASSWORD = process.env.PASSWORD || 'default-password-change-me';
 
 // Store active browser instances (for cleanup on shutdown)
